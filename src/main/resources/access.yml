@@ -1,0 +1,12 @@
+# UUID -> role. Keep this file empty initially or add known test users.
+players:
+  # 00000000-0000-0000-0000-000000000000: ADMIN
+
+# Настройки точек встроенных и кастомных ролей. Создаются автоматически через GUI.
+# role-point-settings:
+#   HELPER:
+#     maxPoints: 10
+#     pointRadius: 250
+#     center:
+#       x: 0
+#       z: 0

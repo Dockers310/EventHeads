@@ -1,0 +1,249 @@
+# EventHeads 3.5.0 configuration
+# RU: Все основные настройки находятся здесь; YAML-файлы с данными событий создаются отдельно.
+# EN: Main runtime settings live here; event data is stored in separate YAML files.
+
+language:
+  # RU: true = язык берётся из локали клиента Minecraft; меню перечитывается при каждом открытии.
+  # EN: true = use the Minecraft client locale; the GUI reads it every time it opens.
+  # Все региональные/пародийные локали Minecraft распознаются; если для локали нет
+  # собственного перевода EventHeads, используется английский как нейтральный fallback.
+  client: true
+  # RU: резервный язык, если локаль клиента не распознана. Доступны: ru, en, de, uk, es, kk, fr, pl.
+  # EN: fallback language when the client locale is not recognized. Available: ru, en, de, uk, es, kk, fr, pl.
+  fallback: ru
+
+economy:
+  # RU: Основная консольная команда экономики. Доступны {player}, {amount}, {event_id}.
+  # EN: Main console economy command. Available placeholders: {player}, {amount}, {event_id}.
+  # AUTO: сначала используем Vault с подтверждением транзакции, затем CMI-команду, затем запасную команду.
+  # На сервере с CMI + Vault это обычно означает выдачу через зарегистрированную экономику CMI.
+  provider: AUTO
+  # AUTO сначала использует Vault (с подтверждением транзакции), затем CMI-команду.
+  # EN: AUTO prefers Vault transaction results, then CMI command fallback.
+  allow-unverified-command-success: true
+  # Для списаний безопаснее требовать подтверждение уменьшением баланса.
+  allow-unverified-withdraw-success: false
+  command: "eco give {player} {amount}"
+  # Прямой fallback для CMI 9.x, если Vault-провайдер временно недоступен.
+  cmi-command: "cmi money give {player} {amount}"
+  withdraw-command: "cmi money take {player} {amount}"
+  # RU: Если true, предмет исчезает даже если награда не выдана.
+  # EN: If true, the EventHead is collected even when payout fails.
+  collect-on-reward-failure: true
+  crazy-vouchers:
+    # RU: Необязательный резервный путь после обычной economy command.
+    # EN: Optional fallback after the normal economy command fails.
+    enabled: false
+    command: "voucher give {player} {amount}"
+
+spawn:
+  # RANDOM, POINTS или MIXED.
+  # RANDOM, POINTS or MIXED.
+  default-mode: RANDOM
+  # RU: Новые события создаются выключенными. Включайте спавн вручную после настройки.
+  # EN: New events are disabled by default; enable spawning after configuration.
+  default-enabled: false
+  # RU/EN: частота основного планировщика спавна в тиках.
+  scheduler-period-ticks: 20
+  # Максимум попыток найти подходящее место за один цикл.
+  max-attempts: 100
+  # Пауза после неудачного поиска места.
+  failed-attempt-delay-seconds: 5
+  # Попытки выбрать координату внутри WorldGuard-региона.
+  region-location-attempts: 50
+  # Значения по умолчанию для новых событий.
+  default-max-active: 30
+  default-min-distance: 8.0
+  # Минимальная горизонтальная дистанция от любого онлайн-игрока; 0 = отключено.
+  default-min-player-distance: 0.0
+  default-min-delay-seconds: 15
+  default-max-delay-seconds: 60
+  default-lifetime-seconds: 120
+  # Радиус RANDOM-поиска вокруг онлайн игроков.
+  random-radius: 48
+  require-solid-ground: true
+  allow-water: false
+  allow-lava: false
+  allow-floating: false
+
+animation:
+  enabled: true
+  # Скорость визуальной анимации: 1.0 = стандарт, 2.0 = вдвое быстрее, 0.5 = вдвое медленнее.
+  speed: 1.0
+  duration-seconds: 5
+  rise-blocks: 1.5
+  # Высота визуальной головы над точкой спавна.
+  visual-offset-y: 0.10
+  rotate-degrees-per-tick: 10.0
+  # Дальность видимости временной ItemDisplay-анимации.
+  view-range: 64.0
+  particle: END_ROD
+  # Общее количество частиц за один тик. Если включено несколько типов, лимит делится между ними.
+  particle-count: 4
+  # RU: Несколько цветов для DUST через список HEX. Если пусто — используется particle-color.
+  # EN: Multiple DUST colors as HEX values. If empty, particle-color is used.
+  particle-colors:
+    - "#FFFFFF"
+  # RU: Для отдельного ивента количество, цвет и параметры каждой частицы можно переопределить в редакторе.
+  # EN: Per-event particle count and color can override these global settings.
+  # Формат цвета: #RRGGBB. Цвет применяется к цветным пылинкам.
+  sound: ENTITY_ALLAY_ITEM_GIVEN
+  volume: 1.0
+  pitch: 1.0
+
+security:
+  # Защищать EventHeads по PDC-идентификатору.
+  protect-event-items: true
+  # Удалять EventHeads из инвентарей игроков без нужных прав.
+  remove-from-unauthorized-inventory: true
+  # Удалять EventHeads из обычных контейнеров без нужных прав.
+  remove-from-containers: true
+  # Блокировать выдачу/клонирование EventHeads через creative.
+  # EN: Block creative insertion/duplication of EventHeads for unauthorized players.
+  block-creative-cloning: true
+  # Удалять специальные шкурку/лапку у игроков без eventheads.points.
+  remove-unauthorized-tools: true
+  # Защищать и проверять EventHeads во всех Ender Chest игроков без доступа.
+  remove-from-ender-chests: true
+  # Обновлять состояние мира после рестарта и удалять бесхозные ArmorStand EventHeads.
+  cleanup-orphaned-entities: true
+  # Полный проход по загруженным контейнерам, секунды. События инвентарей работают чаще.
+  full-container-scan-seconds: 120
+  # Косметические ложные частицы рядом с активными событиями, чтобы визуально усложнить поиск ESP.
+  # Не мешает обычному сбору и не гарантирует защиту от читов на клиенте.
+  anti-esp-decoys: true
+  # Скрывать предмет на голове всех Anti-ESP-приманок от обычного клиента.
+  # Это нужно и для ground/air ловушек. Детекция строится на взаимодействии с сущностью,
+  # а не на попытке определить ESP напрямую.
+  anti-esp-hide-head-item: true
+  # Разрешение для игроков/тестеров, которым сервер отправляет настоящий визуальный предмет приманки.
+  anti-esp-show-head-permission: eventheads.anti-esp.view
+  # Количество невидимых приманок на один настоящий EventHead.
+  anti-esp-decoys-min: 2
+  anti-esp-decoys-max: 4
+  # RU: После исчезновения текущих приманок через этот диапазон создаётся новый набор.
+  # EN: After the current decoys disappear, a new set is created after this delay range.
+  anti-esp-decoys-delay-min-seconds: 10
+  anti-esp-decoys-delay-max-seconds: 30
+  # Минимальный/максимальный радиус от настоящего EventHead.
+  anti-esp-decoys-radius-min: 3.5
+  anti-esp-decoys-radius-max: 10.0
+  # Доли наземных и воздушных приманок. Остальные — закопанные.
+  anti-esp-decoys-surface-share: 0.25
+  anti-esp-decoys-air-share: 0.15
+  anti-esp-decoys-y-buried-min: -2.0
+  anti-esp-decoys-y-buried-max: -1.0
+  anti-esp-decoys-y-ground-min: -0.1
+  anti-esp-decoys-y-ground-max: 0.2
+  anti-esp-decoys-y-air-min: 1.5
+  anti-esp-decoys-y-air-max: 3.0
+  # Старое значение оставлено только для обратной совместимости конфигов.
+  anti-esp-decoys-burial-y: 1.35
+  anti-esp-report: true
+  anti-esp-report-threshold-buried: 1
+  anti-esp-report-threshold-surface: 4
+  anti-esp-report-cooldown-ms: 1500
+  anti-esp-report-commands: []
+  # Через сколько секунд одна приманка исчезает; при следующем цикле может появиться новая.
+  # Время жизни каждой ложной стойки выбирается случайно из диапазона.
+  anti-esp-decoys-lifetime-min-seconds: 15
+  anti-esp-decoys-lifetime-max-seconds: 30
+  # Небольшой визуальный всплеск частиц в месте приманки.
+  anti-esp-decoys-particles: false
+  # Разрешать персональные команды /eventheads antiesp hide и /eventheads antiesp show.
+  # Команды меняют только отображение визуального предмета Anti-ESP для самого игрока.
+  anti-esp-personal-visibility-commands: true
+  # Административный состав (имеющий eventheads.settings) по умолчанию начинает в режиме hide.
+  # Для текущей сессии сотрудник может вернуть отображение командой /eventheads antiesp show.
+  anti-esp-admin-default-hidden: true
+  # Отдельное право для персонального переключения. Игроки с eventheads.settings также могут использовать команды.
+  anti-esp-personal-visibility-permission: eventheads.anti-esp.personal
+
+points:
+  # Временный центр ограничения постановки точек. Радиус ролей считается по X/Z относительно этого центра.
+  placement-center:
+    x: 0.0
+    z: 0.0
+
+storage:
+  # Все изменяемые данные находятся в plugins/EventHeads/data/ в отдельных подпапках.
+  # Команда /eventheads data check покажет, созданы ли все рабочие YAML.
+  # Автосохранение YAML.
+  autosave-seconds: 30
+  # Количество резервных копий YAML-файлов перед перезаписью.
+  backup-count: 3
+  # Интервал создания новых .bak-копий. 0 = только первая запись после старта.
+  backup-interval-minutes: 60
+
+worldguard:
+  # RU: false отключает интеграцию даже если WorldGuard установлен.
+  # EN: false disables the integration even when WorldGuard is installed.
+  enabled: true
+
+worldedit:
+  # RU: false отключает интеграцию даже если WorldEdit установлен.
+  # EN: false disables the integration even when WorldEdit is installed.
+  enabled: true
+
+debug: false
+
+luckperms:
+  # RU: Если LuckPerms установлен, EventHeads использует его кэш разрешений.
+  # EN: If LuckPerms is installed, EventHeads uses its cached permission data.
+  enabled: true
+  # Группы LuckPerms могут автоматически соответствовать ролям EventHeads.
+  # Самая высокая роль по weight побеждает.
+  group-roles:
+    admin: ADMIN
+    manager: MANAGER
+    senior_moderator: SENIOR_MODERATOR
+    moderator: MODERATOR
+    helper: HELPER
+    viewer: VIEWER
+
+access:
+  # RU: Имена супер-администраторов. Они получают полный доступ EventHeads.
+  # EN: Super-admin names. These players receive full EventHeads access.
+  super-admin-names:
+    - Dok_Si
+  # Разрешить ADMIN назначать ADMIN. При false только супер-админ может назначить ADMIN.
+  allow-admin-to-grant-admin: true
+  # Дополнительная защита от повышения роли выше своей.
+  allow-role-escalation: false
+
+ui:
+  # RU: Можно менять названия полей редактора без изменения Java-кода.
+  # EN: Editor field labels can be changed without editing Java code.
+  labels:
+    editor.title.ru: "Редактор"
+    editor.title.en: "Editor"
+    editor.admin-name.ru: "Название для админа"
+    editor.admin-name.en: "Admin name"
+    editor.player-name.ru: "Название для игрока"
+    editor.player-name.en: "Player name"
+    editor.description.ru: "Описание"
+    editor.description.en: "Description"
+    editor.reward-min.ru: "Минимальная награда"
+    editor.reward-min.en: "Reward minimum"
+    editor.reward-max.ru: "Максимальная награда"
+    editor.reward-max.en: "Reward maximum"
+  # Какие страницы показывать в обзоре конкретного EventHead.
+  settings-pages:
+    - info
+    - spawn
+    - rewards
+    - animation
+    - schedule
+  # RU: Скрытые поля редактора. Например: [description, schedule].
+  # EN: Hidden editor fields. Example: [description, schedule].
+  editor-hidden-fields: []
+
+
+templates:
+  # Настройки ниже переопределяют встроенные шаблоны. Их можно менять из GUI «Настройка шаблона».
+  # Пустая секция означает «использовать стандарт встроенного шаблона».
+  easter: {}
+  winter: {}
+  fair: {}
+  search: {}
+  custom: {}

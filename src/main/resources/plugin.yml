@@ -1,0 +1,68 @@
+
+name: EventHeads
+version: '3.5.5'
+main: ru.doksi.eventheads.EventHeadsPlugin
+api-version: '26.2'
+authors: [Dok_Si]
+description: EventHeads — события, коллекционные головы и предметы, точки спавна, награды, GUI, WorldGuard/WorldEdit и роли для Paper/Folia 26.2
+folia-supported: true
+softdepend: [packetevents, LuckPerms, WorldGuard, WorldEdit, CrazyVouchers, Vault, CMI]
+commands:
+  eventheads:
+    description: EventHeads main command
+    usage: /eventheads help
+    aliases: [eh]
+    permission: eventheads.use
+permissions:
+  eventheads.view:
+    default: false
+  eventheads.use:
+    default: false
+  eventheads.admin:
+    default: op
+  eventheads.manager:
+    default: op
+  eventheads.editor:
+    default: op
+  eventheads.helper:
+    default: op
+  eventheads.stats:
+    default: op
+  eventheads.access:
+    default: op
+  eventheads.test:
+    default: false
+  eventheads.points:
+    default: false
+  eventheads.break:
+    default: false
+  eventheads.give:
+    default: false
+  eventheads.create:
+    default: false
+  eventheads.edit:
+    default: false
+  eventheads.delete:
+    default: false
+  eventheads.spawn:
+    default: false
+  eventheads.schedule:
+    default: false
+  eventheads.settings:
+    default: false
+  eventheads.item:
+    default: false
+  eventheads.export:
+    default: false
+  eventheads.import:
+    default: false
+
+  eventheads.anti-esp.alert:
+    description: Receive EventHeads Anti-ESP trigger alerts
+    default: op
+  eventheads.anti-esp.view:
+    description: See the visual head item on EventHeads Anti-ESP decoy ArmorStands
+    default: op
+  eventheads.anti-esp.personal:
+    description: Use /eventheads antiesp hide and show for personal visual visibility
+    default: op
