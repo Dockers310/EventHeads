@@ -32,7 +32,9 @@ public final class SecurityScanner implements Listener {
     public void startPlayerScan(Player p){
         if(p==null)return;
         stopPlayerScan(p);
-        ScheduledTask task=SchedulerUtil.runEntityRepeating(plugin,p,()->cleanIfUnauthorized(p),20L,20L);
+        // События инвентаря (клик, подбор, открытие) проверяются сразу; это лишь фоновая подстраховка.
+        long period=Math.max(1L,plugin.getConfig().getLong("security.player-inventory-scan-seconds",5L))*20L;
+        ScheduledTask task=SchedulerUtil.runEntityRepeating(plugin,p,()->cleanIfUnauthorized(p),period,period);
         if(task!=null)playerTasks.put(p.getUniqueId(),task);
     }
     public void stopPlayerScan(Player p){

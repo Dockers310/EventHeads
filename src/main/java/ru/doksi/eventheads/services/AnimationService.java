@@ -46,9 +46,11 @@ public final class AnimationService {
         final String configuredSound = chooseSound(eventDefinition);
         final int configuredEventCount = inst.eventId == null ? -1
                 : plugin.events().getOrDefault(inst.eventId, new EventDefinition("_missing")).collectParticleCount;
-        final int particleCount = Math.max(0, configuredEventCount >= 0
+        // Количество частиц задаётся в редакторе без верхней границы; на тик действует общий лимит.
+        final int maxParticlesPerTick = plugin.maxParticlesPerTick();
+        final int particleCount = Math.min(maxParticlesPerTick, Math.max(0, configuredEventCount >= 0
                 ? configuredEventCount
-                : plugin.getConfig().getInt("animation.particle-count", 4));
+                : plugin.getConfig().getInt("animation.particle-count", 4)));
         final float volume = eventDefinition != null
                 ? eventDefinition.soundVolume
                 : (float) plugin.getConfig().getDouble("animation.volume", 1.0D);
@@ -171,6 +173,7 @@ public final class AnimationService {
 
                         if (particleCount > 0 && location.getWorld() != null) {
                             int particleKinds=Math.max(1,selectedParticles.size());
+                            int particleBudget=maxParticlesPerTick;
                             double elapsedSeconds=(System.nanoTime()-startedAtNanos)/1_000_000_000.0D;
                             for (int particleIndex=0; particleIndex<selectedParticles.size(); particleIndex++) {
                                 Particle selectedParticle=selectedParticles.get(particleIndex);
@@ -182,8 +185,9 @@ public final class AnimationService {
                                     if(elapsedSeconds>duration)continue;
                                     int kindBase=particleCount/particleKinds;
                                     int kindRemainder=particleCount%particleKinds;
-                                    int kindCount=settings.count>=0?settings.count:(kindBase+(particleIndex<kindRemainder?1:0));
+                                    int kindCount=Math.min(particleBudget,settings.count>=0?settings.count:(kindBase+(particleIndex<kindRemainder?1:0)));
                                     if(kindCount<=0)continue;
+                                    particleBudget-=kindCount;
                                     double spread=Math.max(0.0D,settings.radius);
                                     double extra=settings.speed;
                                     if (selectedParticle == Particle.DUST) {
@@ -284,13 +288,13 @@ public final class AnimationService {
         Location location=player.getLocation().clone().add(0.0D,1.0D,0.0D);
         EventInstance preview=new EventInstance(UUID.randomUUID(),event.id,location,player.getLocation().getYaw(),System.currentTimeMillis(),System.currentTimeMillis()+1000L);
         List<Particle> selected=parseParticles(event);
-        int globalCount=Math.max(0,event.collectParticleCount>=0?event.collectParticleCount:plugin.getConfig().getInt("animation.particle-count",4));
+        int globalCount=Math.min(plugin.maxParticlesPerTick(),Math.max(0,event.collectParticleCount>=0?event.collectParticleCount:plugin.getConfig().getInt("animation.particle-count",4)));
         int kinds=Math.max(1,selected.size());
         for(int index=0;index<selected.size();index++){
             Particle particle=selected.get(index);
             ParticleSettings settings=event.particleSettings.getOrDefault(particle.name(),new ParticleSettings());
             int base=globalCount/kinds, rem=globalCount%kinds;
-            int count=settings.count>=0?settings.count:(base+(index<rem?1:0));
+            int count=Math.min(plugin.maxParticlesPerTick(),settings.count>=0?settings.count:(base+(index<rem?1:0)));
             if(count<=0)continue;
             double spread=Math.max(0.0D,settings.radius);
             double speed=Math.max(0.0D,settings.speed);

@@ -15,5 +15,7 @@ public final class EventInstance {
     public final long spawnedAt;
     public long expiresAt;
     public boolean collected;
+    /** Тестовый экземпляр (/eh spawn test): собирается с анимацией, но без награды и статистики. */
+    public boolean test;
     public EventInstance(UUID instanceId,String eventId,Location location,float yaw,long spawnedAt,long expiresAt){this.instanceId=instanceId;this.eventId=eventId;this.location=location.clone();this.yaw=yaw;this.spawnedAt=spawnedAt;this.expiresAt=expiresAt;}
 }

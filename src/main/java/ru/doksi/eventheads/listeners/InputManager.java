@@ -141,6 +141,7 @@ public final class InputManager implements Listener {
             set.remove("*");
             set.addAll(List.of("view","create","edit","delete","spawn","points","points-all","stats","schedule","access","give","settings","test","break","item","export","import","anti-esp","audit","templates"));
         }
+        if(!set.contains(normalized)&&!plugin.access().canGrantPermission(p,normalized)){plugin.lang().send(p, "§cНельзя выдать права, которых нет у вас: §f"+normalized);return;}
         if(!set.add(normalized)) set.remove(normalized);
         roleDrafts.put(p.getUniqueId(),new RoleDraft(d.id,d.name,d.weight,set,d.icon,d.maxPoints,d.pointRadius));
     }
@@ -183,13 +184,22 @@ public final class InputManager implements Listener {
             set.remove("*");
             set.addAll(List.of("view","create","edit","delete","spawn","points","points-all","stats","schedule","access","give","settings","test","break","item","export","import","anti-esp","audit","templates"));
         }
+        if(!set.contains(normalized)&&!plugin.access().canGrantPermission(p,normalized)){plugin.lang().send(p, "§cНельзя выдать права, которых нет у вас: §f"+normalized);return;}
         if(!set.add(normalized))set.remove(normalized);
         roleDrafts.put(p.getUniqueId(),new RoleDraft(current.id,current.name,current.weight,set,current.icon,current.maxPoints,current.pointRadius));
         plugin.data().log("role.permission.toggle",p.getName(),role+" -> "+normalized+"="+set.contains(normalized));
         plugin.gui().openRoleEditor(p,role,Math.max(1,page));
     }
-    public void saveRoleDraft(Player p){ RoleDraft d=roleDrafts.get(p.getUniqueId()); if(d==null)return; if(!d.id.matches("[A-Za-z0-9_-]{1,32}")){plugin.lang().send(p, "§cID роли должен содержать 1–32 символа: a-z, 0-9, _ или -.");return;} if(!plugin.access().isAdmin(p.getUniqueId()) && d.weight>=plugin.access().weight(plugin.access().roleId(p.getUniqueId()))){plugin.lang().send(p, "§cВес новой роли должен быть ниже вашей роли.");return;} if(!plugin.access().createRole(d.id,d.name,d.weight,d.permissions,d.icon,d.maxPoints,d.pointRadius)){plugin.lang().send(p, "§cРоль уже существует или ID некорректен.");return;} plugin.data().log("role.create",p.getName(),d.id+"; points="+d.maxPoints+"; radius="+d.pointRadius+"; permissions="+String.join(",",d.permissions)); roleDrafts.remove(p.getUniqueId());plugin.lang().send(p, "§a✓ Роль §f"+d.id+" §aсоздана.");plugin.gui().openRoles(p); }
-    public void saveRoleEditor(Player p,String id){ RoleDraft d=roleDrafts.get(p.getUniqueId()); if(d==null)return; if(!plugin.access().isAdmin(p.getUniqueId()) && d.weight>=plugin.access().weight(plugin.access().roleId(p.getUniqueId()))){plugin.lang().send(p, "§cВес роли не может быть равным или выше вашей роли.");return;} if(!plugin.access().updateRole(id,d.name,d.weight,d.permissions,d.icon,d.maxPoints,d.pointRadius)){plugin.lang().send(p, "§cНе удалось сохранить роль.");return;} plugin.data().log("role.save",p.getName(),id+"; points="+d.maxPoints+"; radius="+d.pointRadius+"; permissions="+String.join(",",d.permissions)); roleDrafts.remove(p.getUniqueId());plugin.lang().send(p, "§a✓ Роль §f"+id+" §aсохранена.");plugin.gui().openRoles(p); }
+    public void saveRoleDraft(Player p){ RoleDraft d=roleDrafts.get(p.getUniqueId()); if(d==null)return; if(!plugin.access().has(p,Perm.ACCESS))return;
+        // Права новой роли — только из тех, что есть у создающего, иначе подчинённый получил бы больше начальника.
+        List<String> denied=plugin.access().ungrantable(p,d.permissions); if(!denied.isEmpty()){plugin.lang().send(p, "§cНельзя выдать права, которых нет у вас: §f"+String.join(", ",denied));return;}
+        if(plugin.access().isBuiltinRole(d.id)){plugin.lang().send(p, "§cЭто имя занято встроенной ролью.");return;}
+        if(!d.id.matches("[A-Za-z0-9_-]{1,32}")){plugin.lang().send(p, "§cID роли должен содержать 1–32 символа: a-z, 0-9, _ или -.");return;} if(!plugin.access().isAdmin(p.getUniqueId()) && d.weight>=plugin.access().weight(plugin.access().roleId(p.getUniqueId()))){plugin.lang().send(p, "§cВес новой роли должен быть ниже вашей роли.");return;} if(!plugin.access().createRole(d.id,d.name,d.weight,d.permissions,d.icon,d.maxPoints,d.pointRadius)){plugin.lang().send(p, "§cРоль уже существует или ID некорректен.");return;} plugin.data().log("role.create",p.getName(),d.id+"; points="+d.maxPoints+"; radius="+d.pointRadius+"; permissions="+String.join(",",d.permissions)); roleDrafts.remove(p.getUniqueId());plugin.lang().send(p, "§a✓ Роль §f"+d.id+" §aсоздана.");plugin.gui().openRoles(p); }
+    public void saveRoleEditor(Player p,String id){ RoleDraft d=roleDrafts.get(p.getUniqueId()); if(d==null)return; if(!plugin.access().has(p,Perm.ACCESS)||!plugin.access().canGrant(p,id))return;
+        // Черновик должен относиться именно к этой роли, а добавленные права — быть у самого редактора.
+        if(!d.id.equalsIgnoreCase(id)){roleDrafts.remove(p.getUniqueId());plugin.lang().send(p, "§cНе удалось сохранить роль.");return;}
+        List<String> denied=plugin.access().ungrantableAdded(p,id,d.permissions); if(!denied.isEmpty()){plugin.lang().send(p, "§cНельзя выдать права, которых нет у вас: §f"+String.join(", ",denied));return;}
+        if(!plugin.access().isAdmin(p.getUniqueId()) && d.weight>=plugin.access().weight(plugin.access().roleId(p.getUniqueId()))){plugin.lang().send(p, "§cВес роли не может быть равным или выше вашей роли.");return;} if(!plugin.access().updateRole(id,d.name,d.weight,d.permissions,d.icon,d.maxPoints,d.pointRadius)){plugin.lang().send(p, "§cНе удалось сохранить роль.");return;} plugin.data().log("role.save",p.getName(),id+"; points="+d.maxPoints+"; radius="+d.pointRadius+"; permissions="+String.join(",",d.permissions)); roleDrafts.remove(p.getUniqueId());plugin.lang().send(p, "§a✓ Роль §f"+id+" §aсохранена.");plugin.gui().openRoles(p); }
     public void startPointToolBinding(Player p){ pendingPointToolBinding.put(p.getUniqueId(), ""); pending.clear(); pendingVisual.remove(p.getUniqueId()); p.closeInventory(); plugin.lang().send(p, "§bEventHeads §7• Введите ID событий через запятую. Пример: §fseason,halloween,treasure§7. §cотмена §7— отмена."); }
     public void startAccessSearch(Player p){ pendingAccessSearch.put(p.getUniqueId(), ""); pending.clear(); pendingVisual.remove(p.getUniqueId()); p.closeInventory(); plugin.lang().send(p, "§bEventHeads §7• Введите ник или часть ника игрока для поиска. §cотмена §7— отмена."); }
     public void cancelRoleState(Player p){roleDrafts.remove(p.getUniqueId());pendingRoleField.remove(p.getUniqueId());pendingRoleAssign.remove(p.getUniqueId());pendingRoleIcon.remove(p.getUniqueId());pendingPointCenter.remove(p.getUniqueId());}
@@ -261,7 +271,7 @@ public final class InputManager implements Listener {
         }
         if(pendingPointToolBinding.containsKey(uuid)){ ev.setCancelled(true); String raw=val; pendingPointToolBinding.remove(uuid); if(raw.equalsIgnoreCase("cancel")||raw.equalsIgnoreCase("отмена")){SchedulerUtil.runEntity(plugin,ev.getPlayer(),()->plugin.lang().send(ev.getPlayer(),"§eОтменено."));return;} SchedulerUtil.runEntity(plugin,ev.getPlayer(),()->{ List<String> ids=new ArrayList<>(); for(String part:raw.split(",")){String token=part.trim(); if(token.isBlank())continue; String id=plugin.resolveEventId(token); if(plugin.events().containsKey(id)&&!ids.contains(id))ids.add(id);} if(ids.isEmpty()){plugin.lang().send(ev.getPlayer(),"§cНе найдено ни одного существующего события.");return;} ItemStack tool=plugin.items().makeWand(ids); if(!giveSafely(ev.getPlayer(),tool)){plugin.lang().send(ev.getPlayer(),"§cСвободного места для инструмента нет. Ваши предметы не изменены.");return;} plugin.pointListener().setPointMode(ev.getPlayer(),ids); plugin.lang().send(ev.getPlayer(),"§a✓ Шкурка привязана к событиям: §f"+String.join(", ",ids)+"§a. §7Режим установки точек включён — кликните по блоку."); plugin.gui().openPoints(ev.getPlayer(),ids.get(0)); }); return; }
         if(pendingAccessSearch.containsKey(uuid)){ ev.setCancelled(true); String q=val; pendingAccessSearch.remove(uuid); if(q.equalsIgnoreCase("cancel")||q.equalsIgnoreCase("отмена")){SchedulerUtil.runEntity(plugin,ev.getPlayer(),()->plugin.lang().send(ev.getPlayer(),"§eПоиск отменён."));return;} SchedulerUtil.runEntity(plugin,ev.getPlayer(),()->plugin.gui().openAccess(ev.getPlayer(),q)); return; }
-        if(pendingRoleAssign.containsKey(uuid)){ ev.setCancelled(true); String role=pendingRoleAssign.remove(uuid); if(val.equalsIgnoreCase("cancel")||val.equalsIgnoreCase("отмена")){SchedulerUtil.runEntity(plugin,ev.getPlayer(),()->plugin.lang().send(ev.getPlayer(),"§eОтменено."));return;} SchedulerUtil.runEntity(plugin,ev.getPlayer(),()->{org.bukkit.OfflinePlayer target=org.bukkit.Bukkit.getOfflinePlayer(val); if(target.getUniqueId().equals(uuid)){plugin.lang().send(ev.getPlayer(),"§cНельзя назначить роль самому себе.");return;} if(plugin.access().isSuperAdmin(target.getUniqueId())){plugin.lang().send(ev.getPlayer(),"§cСупер-администратор Dok_Si защищён и не участвует в ролях EventHeads.");return;} if(!plugin.access().canGrant(ev.getPlayer(),role)){plugin.lang().send(ev.getPlayer(),plugin.lang().tr(ev.getPlayer(),"role-too-high"));return;} plugin.access().setRole(target,role);plugin.data().log("role-assign",ev.getPlayer().getName(),target.getName()+" -> "+role);plugin.lang().send(ev.getPlayer(),"§a✓ Игрок §f"+val+" §aдобавлен в роль §f"+role+"§a.");plugin.gui().openRoleEditor(ev.getPlayer(),role);}); return; }
+        if(pendingRoleAssign.containsKey(uuid)){ ev.setCancelled(true); String role=pendingRoleAssign.remove(uuid); if(val.equalsIgnoreCase("cancel")||val.equalsIgnoreCase("отмена")){SchedulerUtil.runEntity(plugin,ev.getPlayer(),()->plugin.lang().send(ev.getPlayer(),"§eОтменено."));return;} SchedulerUtil.runEntity(plugin,ev.getPlayer(),()->{org.bukkit.OfflinePlayer target=org.bukkit.Bukkit.getOfflinePlayer(val); if(target.getUniqueId().equals(uuid)){plugin.lang().send(ev.getPlayer(),"§cНельзя назначить роль самому себе.");return;} if(plugin.access().isSuperAdmin(target.getUniqueId())){plugin.lang().send(ev.getPlayer(),"§cСупер-администратор Dok_Si защищён и не участвует в ролях EventHeads.");return;} if(!plugin.access().has(ev.getPlayer(),Perm.ACCESS)||!plugin.access().canGrant(ev.getPlayer(),role)||!plugin.access().canManage(ev.getPlayer(),target.getUniqueId())){plugin.lang().send(ev.getPlayer(),plugin.lang().tr(ev.getPlayer(),"role-too-high"));return;} plugin.access().setRole(target,role);plugin.data().log("role-assign",ev.getPlayer().getName(),target.getName()+" -> "+role);plugin.lang().send(ev.getPlayer(),"§a✓ Игрок §f"+val+" §aдобавлен в роль §f"+role+"§a.");plugin.gui().openRoleEditor(ev.getPlayer(),role);}); return; }
         if(pendingRoleField.containsKey(uuid)){ ev.setCancelled(true); String field=pendingRoleField.remove(uuid); if(val.equalsIgnoreCase("cancel")||val.equalsIgnoreCase("отмена")){SchedulerUtil.runEntity(plugin,ev.getPlayer(),()->plugin.lang().send(ev.getPlayer(),"§eОтменено."));return;} SchedulerUtil.runEntity(plugin,ev.getPlayer(),()->applyRoleField(ev.getPlayer(),field,val)); return; }
         if (!pending.containsKey(uuid)) return;
         ev.setCancelled(true);
@@ -344,7 +354,22 @@ public final class InputManager implements Listener {
     }
     private String requireRoleId(String s){if(!s.matches("[A-Za-z0-9_-]{1,32}"))throw new IllegalArgumentException();return s.toLowerCase(Locale.ROOT);}
 
+    /** Меню могло быть открыто до отзыва доступа, поэтому право проверяется и в момент применения значения. */
+    private boolean mayApply(Player p,String id,String field){
+        var access=plugin.access();
+        if(id!=null&&id.startsWith("__template__:"))return access.has(p,Perm.TEMPLATES)||access.has(p,Perm.CREATE);
+        if("__global__".equals(id))return access.has(p,Perm.SETTINGS);
+        if(field.startsWith("pointChance:"))return access.has(p,Perm.POINTS);
+        return switch(field){
+            case "maxActive","regionMax","distance","playerDistance","chance","minHeight","maxHeight","height","minDelay","maxDelay","delay","minLifetime","maxLifetime","lifetime","region" -> access.has(p,Perm.SPAWN);
+            case "schedule","scheduleStart","scheduleEnd","weeklySchedule","dailySchedule" -> access.has(p,Perm.SCHEDULE);
+            case "duplicateEvent" -> access.has(p,Perm.TEMPLATES)||access.has(p,Perm.EDIT);
+            default -> access.has(p,Perm.EDIT);
+        };
+    }
+
     private void apply(Player p, String id, String field, String v) {
+        if(!mayApply(p,id,field)){plugin.lang().send(p, plugin.lang().tr(p,"unknown-command"));return;}
         if(id!=null && id.startsWith("__template__:")){ applyTemplateSetting(p,id.substring("__template__:".length()),field,v); return; }
         if ("__global__".equals(id)) {
             try {
@@ -387,8 +412,8 @@ public final class InputManager implements Listener {
                 case "name" -> e.adminName = requireText(v);
                 case "playerName" -> e.playerName = requireText(v);
                 case "description" -> e.description = requireText(v);
-                case "minReward" -> { int n=parseInt(v,-100000000,Integer.MAX_VALUE); if(n>e.rewardMax) throw new RangeOrderException(); e.rewardMin=n; }
-                case "maxReward" -> { int n=parseInt(v,-100000000,Integer.MAX_VALUE); if(n<e.rewardMin) throw new RangeOrderException(); e.rewardMax=n; }
+                case "minReward" -> { int n=parseInt(v,-plugin.rewardLimit(),plugin.rewardLimit()); if(n>e.rewardMax) throw new RangeOrderException(); e.rewardMin=n; }
+                case "maxReward" -> { int n=parseInt(v,-plugin.rewardLimit(),plugin.rewardLimit()); if(n<e.rewardMin) throw new RangeOrderException(); e.rewardMax=n; }
                 case "maxActive" -> e.maxActive = parseInt(v,1,100000);
                 case "regionMax" -> e.regionMaxActive = parseInt(v,1,100000);
                 case "distance" -> e.minDistance = parseFiniteDouble(v,0,100000);
@@ -417,7 +442,7 @@ public final class InputManager implements Listener {
                 case "conditionsHelmet" -> { e.conditions.requiredHelmetMaterial=normalizeMaterialOrEmpty(v); e.conditions.enabled=true; }
                 case "conditionsItem" -> { e.conditions.requiredInventoryMaterial=normalizeMaterialOrEmpty(v); e.conditions.enabled=true; }
                 case "conditionsMessage" -> { e.conditions.failMessage=requireText(v); e.conditions.enabled=true; }
-                case "conditionsPenalty" -> { e.conditions.failPenalty=parseInt(v,0,100000000); e.conditions.enabled=true; }
+                case "conditionsPenalty" -> { e.conditions.failPenalty=parseInt(v,0,plugin.rewardLimit()); e.conditions.enabled=true; }
                 case "soundCustom" -> {
                     if(v.equalsIgnoreCase("empty") || v.equalsIgnoreCase("global")){ e.sound=""; e.sounds.clear(); e.soundEnabled=true; }
                     else {
@@ -468,6 +493,8 @@ public final class InputManager implements Listener {
                 case "minLifetime","maxLifetime","lifetime"->"1–604800 сек. (30s, 5m, 2h, 7d). Изменение min/max применяется к новым спавнам; активные можно пересчитать кнопкой «Применить к активным».";
                 case "minHeight","maxHeight","height"->"-2032–2032";
                 case "chance"->"0–100";
+                case "minReward","maxReward"->"-"+plugin.rewardLimit()+" … "+plugin.rewardLimit();
+                case "conditionsPenalty"->"0–"+plugin.rewardLimit();
                 case "distance","playerDistance"->"0 и больше блоков";
                 case "schedule", "scheduleStart", "scheduleEnd"->"2026-08-31 12:00 | 2026-09-07 23:59 или 2d | 1d";
                 default->"корректное значение";
@@ -537,7 +564,7 @@ public final class InputManager implements Listener {
             String t=template.toLowerCase(Locale.ROOT);
             if(v.equalsIgnoreCase("cancel")||v.equalsIgnoreCase("отмена")){plugin.gui().openTemplateSettings(p,t);return;}
             switch(field){
-                case "reward-min", "reward-max" -> plugin.templates().saveTemplateSetting(t,field,parseInt(v,-100000000,Integer.MAX_VALUE));
+                case "reward-min", "reward-max" -> plugin.templates().saveTemplateSetting(t,field,parseInt(v,-plugin.rewardLimit(),plugin.rewardLimit()));
                 case "max-active", "region-max" -> plugin.templates().saveTemplateSetting(t,field,parseInt(v,1,100000));
                 case "min-distance", "min-player-distance" -> plugin.templates().saveTemplateSetting(t,field,parseFiniteDouble(v,0,100000));
                 case "min-delay", "max-delay" -> plugin.templates().saveTemplateSetting(t,field,parseDuration(v,0,86400));
@@ -547,7 +574,7 @@ public final class InputManager implements Listener {
                 case "sounds" -> { List<String> list=new ArrayList<>(); for(String raw:v.split(",")){String x=raw.trim().toUpperCase(Locale.ROOT); if(x.isBlank())continue; if(!list.contains(x))list.add(x);} plugin.templates().saveTemplateSetting(t,field,list); }
                 case "helmet", "inventory-item" -> plugin.templates().saveTemplateSetting(t,field,normalizeMaterialOrEmpty(v));
                 case "fail-message", "description", "player-name", "admin-name" -> plugin.templates().saveTemplateSetting(t,field,requireText(v));
-                case "fail-penalty" -> plugin.templates().saveTemplateSetting(t,field,parseInt(v,-100000000,Integer.MAX_VALUE));
+                case "fail-penalty" -> plugin.templates().saveTemplateSetting(t,field,parseInt(v,0,plugin.rewardLimit()));
                 case "animation-speed" -> plugin.templates().saveTemplateSetting(t,field,parseFiniteDouble(v,0.05,10));
                 case "sound-volume" -> plugin.templates().saveTemplateSetting(t,field,parseFiniteDouble(v,0,10));
                 case "sound-pitch" -> plugin.templates().saveTemplateSetting(t,field,parseFiniteDouble(v,0.5,2));

@@ -45,6 +45,10 @@ public final class SpawnManager {
     /** Следующее время появления очередного набора анти-ESP приманок для конкретного экземпляра. */
     private final Map<UUID,Long> decoyNextSpawn=new ConcurrentHashMap<>();
     private final Map<UUID,Location> playerLocations=new ConcurrentHashMap<>();
+    /** Когда с игрока последний раз снят штраф за невыполненное условие сбора. */
+    private final Map<UUID,Long> lastFailPenalty=new ConcurrentHashMap<>();
+    /** Высота хитбокса обычной стойки для брони. */
+    private static final double STAND_HEIGHT=1.975D;
     public SpawnManager(EventHeadsPlugin p){plugin=p;instanceKey=new NamespacedKey(p,"instance");decoyKey=new NamespacedKey(p,"decoy");decoyEventKey=new NamespacedKey(p,"decoy_event");decoyTierKey=new NamespacedKey(p,"decoy_tier");}
     public Map<UUID,EventInstance> instances(){return Collections.unmodifiableMap(instances);}
     public ArmorStand entity(UUID id){return entities.get(id);}
@@ -141,17 +145,27 @@ public final class SpawnManager {
     }
 
     public void trackPlayer(Player player){if(player!=null)SchedulerUtil.runEntity(plugin,player,()->playerLocations.put(player.getUniqueId(),player.getLocation().clone()));}
-    public void untrackPlayer(Player player){if(player!=null)playerLocations.remove(player.getUniqueId());}
+    public void untrackPlayer(Player player){if(player!=null){playerLocations.remove(player.getUniqueId());lastFailPenalty.remove(player.getUniqueId());}}
     /** Returns true only for currently registered Anti-ESP decoy ArmorStands. */
     public boolean isAntiEspDecoyEntity(int entityId){return decoyEntityIds.contains(entityId);}
     public void despawnEntitiesOnly(){
-        for(ArmorStand as:new ArrayList<>(entities.values())) if(as!=null) SchedulerUtil.runEntity(plugin,as,as::remove);
+        for(ArmorStand as:new ArrayList<>(entities.values())) removeEntity(as);
         entities.clear();
-        for(Entity display:new ArrayList<>(animationEntities.values())) if(display!=null) SchedulerUtil.runEntity(plugin,display,display::remove);
+        for(Entity display:new ArrayList<>(animationEntities.values())) removeEntity(display);
         animationEntities.clear();
         animationEntityIds.clear();
         for(UUID id:new ArrayList<>(decoys.keySet()))removeDecoys(id);
         decoyEntityIds.clear();
+    }
+    /**
+     * Удаляет сущность плагина в её собственном потоке. Выключенный плагин задачи ставить не может,
+     * поэтому в onDisable сущность удаляется напрямую, только если ею владеет текущий поток (Paper).
+     * На Folia стойки остаются до остановки сервера и на диск не попадают: они созданы с setPersistent(false).
+     */
+    private void removeEntity(Entity entity){
+        if(entity==null)return;
+        if(plugin.isEnabled()){SchedulerUtil.runEntity(plugin,entity,()->{if(!entity.isDead())entity.remove();});return;}
+        try{if(Bukkit.isOwnedByCurrentRegion(entity)&&!entity.isDead())entity.remove();}catch(RuntimeException ignored){}
     }
     public int count(String id){return (int)instances.values().stream().filter(i->i.eventId.equals(id)).count();}
     /**
@@ -341,7 +355,7 @@ public final class SpawnManager {
                     schedule(old.eventId);
                     return;
                 }
-                spawnAtRaw(e,old.location,old.yaw,old.instanceId,old.spawnedAt,old.expiresAt,false);
+                spawnAtRaw(e,old.location,old.yaw,old.instanceId,old.spawnedAt,old.expiresAt,false,old.test);
             });
         }
     }
@@ -391,6 +405,9 @@ public final class SpawnManager {
             if(!d.getChunk().isLoaded())d.getChunk().load();
             String tier=pickDecoyTier();
             d.setY(inst.location.getBlockY()+decoyYOffset(tier));
+            // «Закопанная» приманка обязана быть целиком в земле: срабатывание по ней считается
+            // признаком ESP с первого раза, поэтому обычный игрок не должен иметь возможности её задеть.
+            if(tier.equals("buried")&&!fullyBuried(d)) continue;
             if(d.distanceSquared(inst.location)<minR*minR) continue;
             boolean nearOther=list.stream().filter(Objects::nonNull).anyMatch(a->!a.isDead()&&a.getLocation().distanceSquared(d)<2.25);
             if(nearOther) continue;
@@ -429,7 +446,16 @@ public final class SpawnManager {
 
     private void removeDecoys(UUID instanceId){
         decoyNextSpawn.remove(instanceId);List<ArmorStand> list=decoys.remove(instanceId);
-        if(list!=null)for(ArmorStand as:list)if(as!=null){SchedulerUtil.runEntity(plugin,as,()->{decoyEntityIds.remove(as.getEntityId());as.remove();});}
+        if(list!=null)for(ArmorStand as:list)if(as!=null){decoyEntityIds.remove(as.getEntityId());removeEntity(as);}
+    }
+
+    /** Все блоки, которые занимает хитбокс стойки, непрозрачные и полные. */
+    private boolean fullyBuried(Location feet){
+        World w=feet.getWorld();if(w==null)return false;
+        int from=(int)Math.floor(feet.getY()),to=(int)Math.floor(feet.getY()+STAND_HEIGHT);
+        if(from<w.getMinHeight())return false;
+        for(int y=from;y<=to;y++) if(!w.getBlockAt(feet.getBlockX(),y,feet.getBlockZ()).getType().isOccluding()) return false;
+        return true;
     }
 
     /** Select buried/ground/air placement according to configured shares. */
@@ -449,7 +475,14 @@ public final class SpawnManager {
         switch(tier){
             case "ground" -> {min=plugin.getConfig().getDouble(base+"min",-0.1D);max=plugin.getConfig().getDouble(base+"max",0.2D);}
             case "air" -> {min=plugin.getConfig().getDouble(base+"min",1.5D);max=plugin.getConfig().getDouble(base+"max",3.0D);}
-            default -> {min=plugin.getConfig().getDouble(base+"min",-2.0D);max=plugin.getConfig().getDouble(base+"max",-1.0D);}
+            default -> {
+                min=plugin.getConfig().getDouble(base+"min",-3.0D);max=plugin.getConfig().getDouble(base+"max",-2.0D);
+                if(max<min){double t=min;min=max;max=t;}
+                // При смещении выше -1.975 (высота стойки) её верх выступает над землёй — так было
+                // со старыми значениями -2.0…-1.0. Опускаем диапазон, даже если в config.yml остались они.
+                max=Math.min(max,-(STAND_HEIGHT+0.05D));
+                if(min>max)min=max-1.0D;
+            }
         }
         if(max<min){double t=min;min=max;max=t;}
         return min==max?min:ThreadLocalRandom.current().nextDouble(min,max);
@@ -500,7 +533,8 @@ public final class SpawnManager {
             SpawnHint hint=chooseSpawnHint(e);if(hint==null){if(callback!=null)callback.accept(false);return;}
             SchedulerUtil.runRegion(plugin,hint.location,()->{
                 Location candidate=resolveCandidateLocation(e,hint);
-                boolean ok=candidate!=null && canSpawn(e,candidate,true) && spawnAtRaw(e,candidate,e.randomRotation?randomYaw():candidate.getYaw(),UUID.randomUUID(),System.currentTimeMillis(),System.currentTimeMillis()+randomLifetime(e)*1000L,true);
+                // Тестовый экземпляр не считается запуском события и не даёт награды при сборе.
+                boolean ok=candidate!=null && canSpawn(e,candidate,true) && spawnAtRaw(e,candidate,e.randomRotation?randomYaw():candidate.getYaw(),UUID.randomUUID(),System.currentTimeMillis(),System.currentTimeMillis()+randomLifetime(e)*1000L,false,true);
                 SchedulerUtil.runEntity(plugin,p,()->{if(callback!=null)callback.accept(ok);});
             });
         });
@@ -529,10 +563,12 @@ public final class SpawnManager {
         if(!e.worldGuardRegions.isEmpty()&&plugin.worldGuard().available()){
             List<String> regions=new ArrayList<>(e.worldGuardRegions);Collections.shuffle(regions);
             World w=e.worldGuardWorld==null?null:Bukkit.getWorld(e.worldGuardWorld);if(w==null)return null;
-            // Do not query WorldGuard region data from the global scheduler. The region task will
-            // select the actual coordinate from the region bounds before touching terrain.
+            // Координата выбирается сразу: границы региона WorldGuard — это данные, а не мир, их можно
+            // читать из любого потока. Задача спавна должна выполняться в том регионе Folia, которому
+            // принадлежит это место; раньше она запускалась в регионе точки (0,0) и читала чужие чанки.
             String region=regions.get(ThreadLocalRandom.current().nextInt(regions.size()));
-            return new SpawnHint(new Location(w,0,w.getMinHeight(),0),false,region);
+            Location candidate=plugin.worldGuard().randomCandidate(region,w);
+            return candidate==null?null:new SpawnHint(candidate,false,null);
         }
         if(e.hasArea){
             World w=e.worldGuardWorld==null?null:Bukkit.getWorld(e.worldGuardWorld);if(w==null)return null;
@@ -629,8 +665,12 @@ public final class SpawnManager {
         return spawnAtRaw(e,l,yaw,id,spawned,expires,true);
     }
     private boolean spawnAtRaw(EventDefinition e,Location l,float yaw,UUID id,long spawned,long expires,boolean recordLifecycle){
+        return spawnAtRaw(e,l,yaw,id,spawned,expires,recordLifecycle,false);
+    }
+    private boolean spawnAtRaw(EventDefinition e,Location l,float yaw,UUID id,long spawned,long expires,boolean recordLifecycle,boolean test){
         if(l==null||l.getWorld()==null)return false;
         EventInstance inst=new EventInstance(id,e.id,l.clone(),yaw,spawned,expires);
+        inst.test=test;
         double entityY=Math.max(l.getWorld().getMinHeight()+0.1D,l.getY()+plugin.eventHeadEntityYOffset(e));
         Location entityLocation=l.clone();
         entityLocation.setX(l.getBlockX()+0.5D);
@@ -686,12 +726,20 @@ public final class SpawnManager {
         if(!condition.allowed()){
             i.collected=false;
             SchedulerUtil.runGlobal(plugin,()->{plugin.data().saveInstance(i);plugin.data().autosave();});
-            if(condition.penalty()>0)plugin.economy().takeAsync(p,condition.penalty(),e.id).whenComplete((result,error)->{
+            if(condition.penalty()>0&&failPenaltyDue(p))plugin.economy().takeAsync(p,Math.min(condition.penalty(),plugin.rewardLimit()),e.id).whenComplete((result,error)->{
                 if(error!=null || result==null || !result.success())
                     plugin.getLogger().fine("Не удалось снять штраф за невыполненное условие события "+e.id+" с "+p.getName());
             });
             if(condition.message()!=null&&!condition.message().isBlank())plugin.lang().send(p,condition.message());
             return false;
+        }
+
+        if(i.test){
+            // Тестовый экземпляр (/eh spawn test): та же анимация, но без награды и без записи в статистику.
+            // Иначе сотрудник с правом test мог бы создавать головы и сам собирать за них награду.
+            SchedulerUtil.runRegion(plugin,i.location,()->{if(instances.containsKey(id))plugin.animation().play(i,e.visual,p);});
+            plugin.lang().send(p,"§7Тестовый предмет: награда не выдаётся.");
+            return true;
         }
 
         // RU: Награда может быть асинхронной. После её завершения возвращаемся в регион EventHead,
@@ -721,6 +769,15 @@ public final class SpawnManager {
                 schedule(e.id);
             });
         });
+        return true;
+    }
+    /** Штраф за невыполненное условие снимается не чаще одного раза в economy.fail-penalty-cooldown-seconds. */
+    private boolean failPenaltyDue(Player p){
+        long cooldown=Math.max(0L,plugin.getConfig().getLong("economy.fail-penalty-cooldown-seconds",5L))*1000L;
+        long now=System.currentTimeMillis();
+        Long last=lastFailPenalty.get(p.getUniqueId());
+        if(cooldown>0L&&last!=null&&now-last<cooldown)return false;
+        lastFailPenalty.put(p.getUniqueId(),now);
         return true;
     }
     public boolean breakByModerator(UUID id){EventInstance i=instances.get(id);if(i==null)return false;remove(id);schedule(i.eventId);return true;}

@@ -106,5 +106,10 @@ public final class EventDefinition {
         java.time.Instant current=now.toInstant();
         return (startAt==null || !current.isBefore(startAt)) && (endAt==null || current.isBefore(endAt));
     }
-    public int randomReward(Random r){return rewardMin==rewardMax?rewardMin:rewardMin+r.nextInt(rewardMax-rewardMin+1);}
+    public int randomReward(Random r){
+        int min=Math.min(rewardMin,rewardMax),max=Math.max(rewardMin,rewardMax);
+        if(min==max)return min;
+        // Размер диапазона считается в long: max-min+1 не помещается в int при большом разбросе награды.
+        return (int)(min+r.nextLong((long)max-min+1L));
+    }
 }

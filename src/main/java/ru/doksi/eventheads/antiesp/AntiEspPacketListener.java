@@ -22,7 +22,7 @@ import java.util.List;
  * detect the entity itself. Ordinary players, however, must not receive the head item.
  * The actual Equipment packet is therefore rewritten only for players without the view permission.
  */
-public final class AntiEspPacketListener extends PacketListenerAbstract {
+public final class AntiEspPacketListener extends PacketListenerAbstract implements AntiEspFilter {
     private final EventHeadsPlugin plugin;
     private String showPermission;
     private boolean packetErrorLogged;
@@ -33,6 +33,19 @@ public final class AntiEspPacketListener extends PacketListenerAbstract {
         reload();
     }
 
+    /** Создаёт и регистрирует фильтр. Вызывается, только если PacketEvents установлен. */
+    public static AntiEspFilter register(EventHeadsPlugin plugin) {
+        AntiEspPacketListener listener = new AntiEspPacketListener(plugin);
+        PacketEvents.getAPI().getEventManager().registerListener(listener);
+        return listener;
+    }
+
+    @Override
+    public void unregister() {
+        PacketEvents.getAPI().getEventManager().unregisterListener(this);
+    }
+
+    @Override
     public void reload(){
         this.showPermission=plugin.getConfig().getString("security.anti-esp-show-head-permission","eventheads.anti-esp.view");
         this.packetErrorLogged=false;

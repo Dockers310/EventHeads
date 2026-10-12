@@ -20,6 +20,9 @@ economy:
   provider: AUTO
   # AUTO сначала использует Vault (с подтверждением транзакции), затем CMI-команду.
   # EN: AUTO prefers Vault transaction results, then CMI command fallback.
+  # Следующий способ пробуется, только если предыдущий недоступен или ответил явным отказом.
+  # Если команда отправлена, но баланс не подтвердил выплату, другие способы не используются:
+  # повторная выдача по другому каналу платила бы дважды.
   allow-unverified-command-success: true
   # Для списаний безопаснее требовать подтверждение уменьшением баланса.
   allow-unverified-withdraw-success: false
@@ -30,6 +33,13 @@ economy:
   # RU: Если true, предмет исчезает даже если награда не выдана.
   # EN: If true, the EventHead is collected even when payout fails.
   collect-on-reward-failure: true
+  # RU: Наибольшая по модулю награда или штраф за один сбор. Значения больше лимита редактор
+  # не принимает, а уже сохранённые в событиях обрезаются при выдаче.
+  # EN: Largest absolute reward or penalty per collection.
+  reward-limit: 1000000
+  # RU: Штраф за невыполненное условие сбора снимается с игрока не чаще одного раза за это время.
+  # 0 = при каждом клике по предмету.
+  fail-penalty-cooldown-seconds: 5
   crazy-vouchers:
     # RU: Необязательный резервный путь после обычной economy command.
     # EN: Optional fallback after the normal economy command fails.
@@ -80,6 +90,8 @@ animation:
   particle: END_ROD
   # Общее количество частиц за один тик. Если включено несколько типов, лимит делится между ними.
   particle-count: 4
+  # Верхняя граница частиц за один тик для одного предмета, какие бы значения ни были заданы в редакторе.
+  max-particles-per-tick: 200
   # RU: Несколько цветов для DUST через список HEX. Если пусто — используется particle-color.
   # EN: Multiple DUST colors as HEX values. If empty, particle-color is used.
   particle-colors:
@@ -109,6 +121,9 @@ security:
   cleanup-orphaned-entities: true
   # Полный проход по загруженным контейнерам, секунды. События инвентарей работают чаще.
   full-container-scan-seconds: 120
+  # Фоновая проверка инвентаря каждого игрока без прав, секунды. Клик, подбор и открытие
+  # инвентаря проверяются сразу, это только подстраховка.
+  player-inventory-scan-seconds: 5
   # Косметические ложные частицы рядом с активными событиями, чтобы визуально усложнить поиск ESP.
   # Не мешает обычному сбору и не гарантирует защиту от читов на клиенте.
   anti-esp-decoys: true
@@ -131,8 +146,10 @@ security:
   # Доли наземных и воздушных приманок. Остальные — закопанные.
   anti-esp-decoys-surface-share: 0.25
   anti-esp-decoys-air-share: 0.15
-  anti-esp-decoys-y-buried-min: -2.0
-  anti-esp-decoys-y-buried-max: -1.0
+  # Закопанная приманка должна быть в земле целиком: высота стойки 1.975 блока, поэтому верхнее
+  # смещение не может быть выше -2.0. Приманка, которая не помещается в сплошной грунт, не создаётся.
+  anti-esp-decoys-y-buried-min: -3.0
+  anti-esp-decoys-y-buried-max: -2.0
   anti-esp-decoys-y-ground-min: -0.1
   anti-esp-decoys-y-ground-max: 0.2
   anti-esp-decoys-y-air-min: 1.5
@@ -142,6 +159,9 @@ security:
   anti-esp-report: true
   anti-esp-report-threshold-buried: 1
   anti-esp-report-threshold-surface: 4
+  # Наземные и воздушные приманки невидимы и стоят там, где ходят игроки: одиночные задевания случайны.
+  # Сообщение уходит, только если порог набран за это время (секунды). 0 = считать за всё время.
+  anti-esp-report-surface-window-seconds: 600
   anti-esp-report-cooldown-ms: 1500
   anti-esp-report-commands: []
   # Через сколько секунд одна приманка исчезает; при следующем цикле может появиться новая.
@@ -204,8 +224,13 @@ luckperms:
 access:
   # RU: Имена супер-администраторов. Они получают полный доступ EventHeads.
   # EN: Super-admin names. These players receive full EventHeads access.
+  # На сервере без лицензионной авторизации ник защищает только плагин авторизации: убедитесь,
+  # что эти ники зарегистрированы и что нельзя зарегистрировать тот же ник в другом регистре.
   super-admin-names:
     - Dok_Si
+  # RU: То же по UUID игрока. Надёжнее ника; список ников при этом можно оставить пустым.
+  # EN: Same by player UUID. Safer than names.
+  super-admin-uuids: []
   # Разрешить ADMIN назначать ADMIN. При false только супер-админ может назначить ADMIN.
   allow-admin-to-grant-admin: true
   # Дополнительная защита от повышения роли выше своей.

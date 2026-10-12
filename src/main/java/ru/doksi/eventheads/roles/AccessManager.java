@@ -25,6 +25,9 @@ public final class AccessManager {
     // EN: Extra point settings for built-in roles and optional custom-role center overrides.
     private final Map<String, PointRoleSettings> rolePointSettings = new java.util.concurrent.ConcurrentHashMap<>();
     private final Map<UUID, Map<String, Boolean>> overrides = new java.util.concurrent.ConcurrentHashMap<>();
+    // Одна привязка прав на игрока: раньше каждая синхронизация добавляла новую и они копились.
+    private final Map<UUID, UseAttachment> attachments = new java.util.concurrent.ConcurrentHashMap<>();
+    private record UseAttachment(Player player, org.bukkit.permissions.PermissionAttachment attachment) { }
 
     public AccessManager(EventHeadsPlugin plugin){ this.plugin = plugin; }
 
@@ -36,6 +39,11 @@ public final class AccessManager {
             String name=c.getString("roles."+id+".name",id);
             int weight=c.getInt("roles."+id+".weight",1);
             Set<String> perms=new LinkedHashSet<>(c.getStringList("roles."+id+".permissions"));
+            if(RoleNames.isBuiltin(id)){
+                // Кастомная роль с именем встроенной подменяла её вес и права (например, «ADMIN» с весом 1).
+                plugin.getLogger().severe("Кастомная роль '"+id+"' совпадает с именем встроенной роли и не загружена. Проверьте, кому назначена роль "+id.toUpperCase(Locale.ROOT)+".");
+                continue;
+            }
             customRoles.put(id.toLowerCase(Locale.ROOT),new CustomRole(id,name,weight,perms,                    c.getString("roles."+id+".icon","WRITABLE_BOOK"),                    c.getInt("roles."+id+".maxPoints",-1),                    c.getDouble("roles."+id+".pointRadius",-1.0D)));
         }
         var rps=c.getConfigurationSection("role-point-settings");
@@ -93,8 +101,13 @@ public final class AccessManager {
         return roles.getOrDefault(uuid,"NONE");
     }
     public String roleDisplay(UUID uuid){
-        String id=roleId(uuid); CustomRole cr=customRoles.get(id.toLowerCase(Locale.ROOT)); if(cr!=null)return cr.displayName();
-        try{return Role.valueOf(id.toUpperCase(Locale.ROOT)).name();}catch(Exception ignored){return id;}
+        String id=roleId(uuid); Role builtin=builtin(id); if(builtin!=null)return builtin.name();
+        CustomRole cr=customRoles.get(id.toLowerCase(Locale.ROOT)); return cr!=null?cr.displayName():id;
+    }
+    /** Встроенная роль с таким именем или null. Встроенные роли всегда важнее кастомных. */
+    private Role builtin(String roleId){
+        if(roleId==null)return null;
+        try{return Role.valueOf(roleId.toUpperCase(Locale.ROOT));}catch(IllegalArgumentException ignored){return null;}
     }
     public boolean allows(UUID uuid,String permission){
         if(plugin.isSuperAdmin(uuid)) return true;
@@ -109,9 +122,10 @@ public final class AccessManager {
         if(plugin.isSuperAdmin(uuid)) return true;
         String normalized=permission==null?"":permission.trim().toLowerCase(Locale.ROOT);
         String id=roleId(uuid);
+        Role builtin=builtin(id);
+        if(builtin!=null)return builtin.allows(normalized);
         CustomRole cr=customRoles.get(id.toLowerCase(Locale.ROOT));
-        if(cr!=null)return cr.allows(normalized);
-        try{return Role.valueOf(id.toUpperCase(Locale.ROOT)).allows(normalized);}catch(Exception ignored){return false;}
+        return cr!=null && cr.allows(normalized);
     }
     public boolean has(Player p,String permission){
         if(plugin.isSuperAdmin(p.getUniqueId())) return true;
@@ -123,19 +137,58 @@ public final class AccessManager {
         return POINTS.equals(permission) && allows(p.getUniqueId(),POINTS_ALL);
     }
     public int weight(String roleId){
-        CustomRole cr=customRoles.get(roleId.toLowerCase(Locale.ROOT)); if(cr!=null)return cr.weight();
-        try{return Role.valueOf(roleId.toUpperCase(Locale.ROOT)).weight();}catch(Exception ignored){return 0;}
+        if(roleId==null)return 0;
+        Role builtin=builtin(roleId); if(builtin!=null)return builtin.weight();
+        CustomRole cr=customRoles.get(roleId.toLowerCase(Locale.ROOT)); return cr==null?0:cr.weight();
     }
+    /** Может ли actor назначить кому-либо роль targetRole (или редактировать эту роль). */
     public boolean canGrant(Player actor,String targetRole){
-        if(plugin.isSuperAdmin(actor.getUniqueId()) || isAdmin(actor.getUniqueId())) return true;
-        if(!has(actor,"access"))return false;
-        String actorRole=roleId(actor.getUniqueId());
+        if(actor==null||targetRole==null)return false;
+        if(plugin.isSuperAdmin(actor.getUniqueId())) return true;
         // RU: Эти два флага позволяют серверному владельцу явно настроить повышение ролей.
         // EN: These two flags let the server owner explicitly configure role escalation.
+        // При allow-admin-to-grant-admin=false роль ADMIN назначает только супер-администратор.
+        if(targetRole.equalsIgnoreCase("ADMIN") && !plugin.getConfig().getBoolean("access.allow-admin-to-grant-admin",true)) return false;
+        if(isAdmin(actor.getUniqueId())) return true;
+        if(!has(actor,"access"))return false;
         if(plugin.getConfig().getBoolean("access.allow-role-escalation",false)) return true;
-        if(actorRole.equalsIgnoreCase("ADMIN") && targetRole.equalsIgnoreCase("ADMIN")
-                && plugin.getConfig().getBoolean("access.allow-admin-to-grant-admin",true)) return true;
-        return weight(targetRole)<weight(actorRole);
+        return weight(targetRole)<weight(roleId(actor.getUniqueId()));
+    }
+    /**
+     * Может ли actor менять роль или права игрока target. Назначить можно только роль ниже своей,
+     * и менять можно только того, чья ТЕКУЩАЯ роль ниже своей: иначе сотрудник мог бы
+     * понизить администратора, «назначив» ему младшую роль.
+     */
+    public boolean canManage(Player actor,UUID target){
+        if(actor==null||target==null||plugin.isSuperAdmin(target))return false;
+        UUID actorId=actor.getUniqueId();
+        if(plugin.isSuperAdmin(actorId)||isAdmin(actorId))return true;
+        if(!has(actor,Perm.ACCESS)||isAdmin(target))return false;
+        return weight(roleId(target))<weight(roleId(actorId));
+    }
+    /** Выдать можно только то право, которое есть у самого выдающего. ADMIN выдаёт любые. */
+    public boolean canGrantPermission(Player actor,String permission){
+        if(actor==null||permission==null)return false;
+        if(plugin.isSuperAdmin(actor.getUniqueId())||isAdmin(actor.getUniqueId()))return true;
+        String normalized=permission.trim().toLowerCase(Locale.ROOT);
+        return !normalized.isEmpty() && !normalized.equals("*") && has(actor,normalized);
+    }
+    /** Права из списка, которые actor выдать не может (пустой список — можно все). */
+    public List<String> ungrantable(Player actor,Collection<String> permissions){
+        List<String> out=new ArrayList<>();
+        if(permissions!=null)for(String permission:permissions) if(permission!=null&&!permission.isBlank()&&!canGrantPermission(actor,permission)) out.add(permission.trim().toLowerCase(Locale.ROOT));
+        return out;
+    }
+    /** Права, которые добавляются к роли при сохранении и которых у actor нет. */
+    public List<String> ungrantableAdded(Player actor,String roleId,Collection<String> permissions){
+        CustomRole old=roleId==null?null:customRoles.get(roleId.toLowerCase(Locale.ROOT));
+        List<String> added=new ArrayList<>();
+        if(permissions!=null)for(String permission:permissions){
+            if(permission==null||permission.isBlank())continue;
+            String normalized=permission.trim().toLowerCase(Locale.ROOT);
+            if(old==null||!old.permissions().contains(normalized))added.add(normalized);
+        }
+        return ungrantable(actor,added);
     }
     /** Returns whether the UUID belongs to the protected EventHeads super-administrator. */
     public boolean isSuperAdmin(UUID uuid){ return uuid != null && plugin.isSuperAdmin(uuid); }
@@ -156,7 +209,8 @@ public final class AccessManager {
     public boolean createRole(String id,String name,int weight,Collection<String> permissions){ return createRole(id,name,weight,permissions,"WRITABLE_BOOK",-1,-1.0D); }
     public boolean createRole(String id,String name,int weight,Collection<String> permissions,String icon){ return createRole(id,name,weight,permissions,icon,-1,-1.0D); }
     public boolean createRole(String id,String name,int weight,Collection<String> permissions,String icon,int maxPoints,double pointRadius){
-        if(!id.matches("[A-Za-z0-9_-]{1,32}")||customRoles.containsKey(id.toLowerCase(Locale.ROOT)))return false;
+        // Имена встроенных ролей (в любом регистре) заняты: кастомная «ADMIN» подменяла бы настоящую.
+        if(!id.matches("[A-Za-z0-9_-]{1,32}")||RoleNames.isBuiltin(id)||customRoles.containsKey(id.toLowerCase(Locale.ROOT)))return false;
         customRoles.put(id.toLowerCase(Locale.ROOT),new CustomRole(id,name,weight,new LinkedHashSet<>(permissions),icon,maxPoints,pointRadius));save();return true;
     }
     public boolean updateRole(String id,String name,int weight,Collection<String> permissions){ CustomRole old=customRoles.get(id.toLowerCase(Locale.ROOT)); return old!=null && updateRole(id,name,weight,permissions,old.icon(),old.maxPoints(),old.pointRadius()); }
@@ -380,14 +434,26 @@ public final class AccessManager {
         return java.math.BigDecimal.valueOf(radius).stripTrailingZeros().toPlainString();
     }
 
-    public void setOverride(OfflinePlayer player,String permission,boolean value){ overrides.computeIfAbsent(player.getUniqueId(),k->new java.util.concurrent.ConcurrentHashMap<>()).put(permission,value); save(); if(player.isOnline())SchedulerUtil.runEntity(plugin,(Player)player,()->syncUsePermission((Player)player)); }
+    public void setOverride(OfflinePlayer player,String permission,boolean value){ overrides.computeIfAbsent(player.getUniqueId(),k->new java.util.concurrent.ConcurrentHashMap<>()).put(permission.trim().toLowerCase(Locale.ROOT),value); save(); if(player.isOnline())SchedulerUtil.runEntity(plugin,(Player)player,()->syncUsePermission((Player)player)); }
     public Boolean override(UUID uuid,String permission){Map<String,Boolean> m=overrides.get(uuid);return m==null?null:m.get(permission);}
     public boolean isAdmin(UUID u){
         if(plugin.isSuperAdmin(u) || roleId(u).equalsIgnoreCase("ADMIN")) return true;
         Player p=Bukkit.getPlayer(u);
         return p!=null && (p.hasPermission("eventheads.admin") || (plugin.luckPerms()!=null && plugin.luckPerms().available() && plugin.luckPerms().has(p,"eventheads.admin")));
     }
-    public void syncUsePermission(Player p){p.addAttachment(plugin).setPermission("eventheads.use",has(p,Perm.VIEW));plugin.updateAntiEspViewPermission(p);}
+    public void syncUsePermission(Player p){
+        UseAttachment use=attachments.get(p.getUniqueId());
+        // После перезахода у игрока новый объект Player: старая привязка к нему не относится.
+        // Сравнивается сам объект игрока: у LuckPerms привязка не возвращает игрока как владельца.
+        if(use==null||use.player()!=p){use=new UseAttachment(p,p.addAttachment(plugin));attachments.put(p.getUniqueId(),use);}
+        use.attachment().setPermission("eventheads.use",has(p,Perm.VIEW));
+        plugin.updateAntiEspViewPermission(p);
+    }
+    /** Игрок вышел: его привязка прав больше не нужна. */
+    public void forget(Player p){
+        UseAttachment use=attachments.remove(p.getUniqueId());
+        if(use!=null){try{use.player().removeAttachment(use.attachment());}catch(RuntimeException ignored){}}
+    }
 
     private static final class PointRoleSettings {
         private final int maxPoints;

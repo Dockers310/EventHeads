@@ -44,6 +44,8 @@ public final class AntiEspReport {
     private YamlConfiguration data;
     private boolean dirty;
     private final Map<UUID, Long> cooldown=new ConcurrentHashMap<>();
+    /** Время недавних срабатываний по наземным и воздушным приманкам. Меняется только внутри trigger(). */
+    private final Map<UUID, java.util.ArrayDeque<Long>> surfaceHits=new HashMap<>();
 
     public AntiEspReport(EventHeadsPlugin plugin) {
         this.plugin=plugin;
@@ -105,8 +107,9 @@ public final class AntiEspReport {
         int need=buried
                 ? Math.max(1,plugin.getConfig().getInt("security.anti-esp-report-threshold-buried",1))
                 : Math.max(1,plugin.getConfig().getInt("security.anti-esp-report-threshold-surface",4));
-        int have=buried?nBuried:nSurface;
-        if(have<need || have%need!=0) return;
+        if(buried){
+            if(nBuried<need || nBuried%need!=0) return;
+        } else if(!surfaceThresholdReached(player.getUniqueId(),now,need,nSurface)) return;
 
         String teleportCommand=coTeleportCommand(where);
         plugin.getLogger().warning("Anti-ESP trigger: "+player.getName()+" total="+total+" "+world+" "+pos);
@@ -125,6 +128,23 @@ public final class AntiEspReport {
             String cmd=command.replace("%player%", sanitize(player.getName())).replace("%uuid%", player.getUniqueId().toString()).replace("%count%", Integer.toString(total)).replace("%buried%", Integer.toString(nBuried));
             SchedulerUtil.runGlobal(plugin,()->Bukkit.dispatchCommand(Bukkit.getConsoleSender(),cmd));
         }
+    }
+
+    /**
+     * RU: Наземные и воздушные приманки невидимы и стоят там, где ходят игроки, поэтому одиночные
+     * задевания случайны. Сообщение сотрудникам уходит, только если нужное число срабатываний набрано
+     * за короткое время (security.anti-esp-report-surface-window-seconds); 0 — считать за всё время.
+     */
+    private boolean surfaceThresholdReached(UUID uuid,long now,int need,int total){
+        long window=Math.max(0L,plugin.getConfig().getLong("security.anti-esp-report-surface-window-seconds",600L))*1000L;
+        if(window<=0L) return total>=need && total%need==0;
+        surfaceHits.values().removeIf(old->old.isEmpty() || now-old.peekLast()>window);
+        java.util.ArrayDeque<Long> hits=surfaceHits.computeIfAbsent(uuid,k->new java.util.ArrayDeque<>());
+        hits.addLast(now);
+        while(now-hits.peekFirst()>window) hits.removeFirst();
+        if(hits.size()<need) return false;
+        hits.clear();
+        return true;
     }
 
     /**
