@@ -13,6 +13,9 @@ public final class RewardService {
 
     public CompletableFuture<EconomyAdapter.Result> grantAsync(Player p,EventDefinition e){
         int amount=e.randomReward(new java.util.Random(ThreadLocalRandom.current().nextLong()));
+        // Старые события и импортированные файлы могли сохранить награду выше economy.reward-limit.
+        int limit=plugin.rewardLimit();
+        amount=Math.max(-limit,Math.min(limit,amount));
         if(amount<0)return plugin.economy().takeAsync(p,-(double)amount,e.id);
         return plugin.economy().giveAsync(p,amount,e.id);
     }

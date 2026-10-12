@@ -4,6 +4,7 @@ package ru.doksi.eventheads;
 // RU: Главный класс плагина: загрузка сервисов, слушателей, планировщиков и интеграций.
 // EN: Main plugin bootstrap: services, listeners, schedulers and integrations.
 
+import ru.doksi.eventheads.antiesp.AntiEspFilter;
 import ru.doksi.eventheads.antiesp.AntiEspPacketListener;
 import ru.doksi.eventheads.antiesp.AntiEspReport;
 import ru.doksi.eventheads.commands.Commands;
@@ -33,13 +34,16 @@ import ru.doksi.eventheads.util.SchedulerUtil;
 import org.bukkit.Bukkit;import org.bukkit.entity.Player;import io.papermc.paper.ServerBuildInfo;import net.kyori.adventure.key.Key;import org.bukkit.event.EventHandler;import org.bukkit.event.Listener;import org.bukkit.event.world.ChunkLoadEvent;import org.bukkit.event.world.EntitiesLoadEvent;import org.bukkit.event.world.WorldLoadEvent;import org.bukkit.plugin.java.JavaPlugin;import java.time.Instant;import java.util.*;
 
 public final class EventHeadsPlugin extends JavaPlugin {
-    private DataStore data; private EconomyAdapter economy; private SecurityScanner securityScanner; private LocaleManager lang; private AccessManager access; private ItemService items; private SpawnManager spawner; private RewardService reward; private AnimationService animation; private GuiManager gui; private InputManager input; private WorldGuardHook worldGuard; private WorldEditHook worldEdit; private LuckPermsHook luckPerms; private ConditionService conditions; private EventTemplateService templates; private InteractionListener pointListener; private AntiEspPacketListener antiEspPacketListener; private AntiEspReport antiEspReport; private final Set<java.util.UUID> antiEspHiddenViewers=java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private DataStore data; private EconomyAdapter economy; private SecurityScanner securityScanner; private LocaleManager lang; private AccessManager access; private ItemService items; private SpawnManager spawner; private RewardService reward; private AnimationService animation; private GuiManager gui; private InputManager input; private WorldGuardHook worldGuard; private WorldEditHook worldEdit; private LuckPermsHook luckPerms; private ConditionService conditions; private EventTemplateService templates; private InteractionListener pointListener; private AntiEspFilter antiEspPacketListener; private AntiEspReport antiEspReport; private final Set<java.util.UUID> antiEspHiddenViewers=java.util.concurrent.ConcurrentHashMap.newKeySet();
     /** Only simple booleans/UUIDs are read from PacketEvents network threads. */
     private final Map<java.util.UUID,Boolean> antiEspViewPermissionCache=new java.util.concurrent.ConcurrentHashMap<>();
     private final Map<String,EventDefinition> events=new java.util.concurrent.ConcurrentHashMap<>();
     public boolean isSuperAdmin(java.util.UUID uuid){
         if(uuid==null) return false;
+        // UUID надёжнее ника: без лицензионной авторизации он зависит от точного написания ника.
+        for(String raw:getConfig().getStringList("access.super-admin-uuids")) if(uuid.toString().equalsIgnoreCase(raw.trim())) return true;
         var names=getConfig().getStringList("access.super-admin-names");
+        if(names.isEmpty()) return false;
         Player online=Bukkit.getPlayer(uuid);
         String name=online!=null?online.getName():Bukkit.getOfflinePlayer(uuid).getName();
         return name!=null && names.stream().anyMatch(n->n.equalsIgnoreCase(name));
@@ -108,14 +112,15 @@ printStartupBanner(); getLogger().info("EventHeads "+getDescription().getVersion
     @Override public void onDisable(){
         // RU: Сохраняем active.yml и удаляем все визуальные сущности/анимации.
         // EN: Persist active.yml while removing all visual EventHead/animation entities.
-        data.saveAll();if(antiEspReport!=null)antiEspReport.flush();if(antiEspPacketListener!=null){try{com.github.retrooper.packetevents.PacketEvents.getAPI().getEventManager().unregisterListener(antiEspPacketListener);}catch(Throwable ignored){}}spawner.despawnEntitiesOnly();}
+        data.saveAll();if(antiEspReport!=null)antiEspReport.flush();if(antiEspPacketListener!=null){try{antiEspPacketListener.unregister();}catch(Throwable ignored){}}spawner.despawnEntitiesOnly();}
 
     private void registerAntiEspPacketListener(){
         if(!getConfig().getBoolean("security.anti-esp-hide-head-item",true)) return;
         if(getServer().getPluginManager().getPlugin("packetevents")==null) return;
         try {
-            antiEspPacketListener=new AntiEspPacketListener(this);
-            com.github.retrooper.packetevents.PacketEvents.getAPI().getEventManager().registerListener(antiEspPacketListener);
+            // Типы PacketEvents встречаются только внутри AntiEspPacketListener: главный класс должен
+            // загружаться и на сервере без PacketEvents.
+            antiEspPacketListener=AntiEspPacketListener.register(this);
             getLogger().info("Anti-ESP packet head filtering enabled via PacketEvents.");
         } catch(Throwable t) {
             antiEspPacketListener=null;
@@ -127,6 +132,9 @@ printStartupBanner(); getLogger().info("EventHeads "+getDescription().getVersion
             reloadConfig();
             validateConfig();
             lang.reload();
+            // Сначала сбрасываем на диск несохранённые статистику, журнал и активные экземпляры:
+            // data.load() перечитывает файлы и иначе стёр бы всё, что накопилось с последнего автосохранения.
+            data.autosave();
             data.load();
             events.clear();
             events.putAll(data.loadEvents());
@@ -151,6 +159,11 @@ printStartupBanner(); getLogger().info("EventHeads "+getDescription().getVersion
         if(player==null || !getConfig().getBoolean("security.anti-esp-admin-default-hidden",true)) return;
         if(access!=null && (access.isAdmin(player.getUniqueId()) || access.has(player, Perm.SETTINGS) || access.has(player, Perm.ANTI_ESP))) antiEspHiddenViewers.add(player.getUniqueId());
     }
+
+    /** Наибольшая по модулю награда или штраф за один сбор (economy.reward-limit). */
+    public int rewardLimit(){return Math.max(0,getConfig().getInt("economy.reward-limit",1_000_000));}
+    /** Сколько частиц анимация сбора может создать за один тик (animation.max-particles-per-tick). */
+    public int maxParticlesPerTick(){return Math.max(0,getConfig().getInt("animation.max-particles-per-tick",200));}
 
     public AntiEspReport antiEspReport(){return antiEspReport;}
     public boolean antiEspHidden(org.bukkit.entity.Player p){return p!=null && antiEspHiddenViewers.contains(p.getUniqueId());}
