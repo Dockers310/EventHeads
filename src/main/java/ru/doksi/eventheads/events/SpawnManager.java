@@ -726,7 +726,7 @@ public final class SpawnManager {
         if(!condition.allowed()){
             i.collected=false;
             SchedulerUtil.runGlobal(plugin,()->{plugin.data().saveInstance(i);plugin.data().autosave();});
-            if(condition.penalty()>0&&failPenaltyDue(p))plugin.economy().takeAsync(p,Math.min(condition.penalty(),plugin.rewardLimit()),e.id).whenComplete((result,error)->{
+            if(condition.penalty()>0&&failPenaltyDue(p))plugin.reward().chargePenalty(p,Math.min(condition.penalty(),plugin.rewardLimit()),e.id).whenComplete((result,error)->{
                 if(error!=null || result==null || !result.success())
                     plugin.getLogger().fine("Не удалось снять штраф за невыполненное условие события "+e.id+" с "+p.getName());
             });
