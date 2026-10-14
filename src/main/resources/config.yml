@@ -33,6 +33,10 @@ economy:
   # RU: Если true, предмет исчезает даже если награда не выдана.
   # EN: If true, the EventHead is collected even when payout fails.
   collect-on-reward-failure: true
+  # RU: Писать игроку, сколько начислено за предмет и сколько списано (штраф, отрицательная награда).
+  # Если деньги прошли консольной командой (cmi money give, eco give), она сообщает сама,
+  # и EventHeads второе сообщение не отправляет. Тексты: collect и economy-spent в messages_*.yml.
+  notify-player: true
   # RU: Наибольшая по модулю награда или штраф за один сбор. Значения больше лимита редактор
   # не принимает, а уже сохранённые в событиях обрезаются при выдаче.
   # EN: Largest absolute reward or penalty per collection.

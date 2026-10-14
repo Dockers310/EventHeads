@@ -31,6 +31,8 @@ public final class EconomyAdapter {
         static Attempt unavailable(){return new Attempt(new Result(false,0,"none"),false);}
         static Attempt refused(String provider){return new Attempt(new Result(false,0,provider),false);}
         static Attempt done(Result result){return new Attempt(result,true);}
+        /** Выплата консольной командой: такие команды (CMI, Essentials) сами пишут игроку о деньгах. */
+        static Attempt byCommand(Result result){return new Attempt(new Result(result.success(),result.actualAmount(),result.provider(),true),true);}
     }
 
     public CompletableFuture<Result> giveAsync(Player player,double amount,String eventId){CompletableFuture<Result> f=new CompletableFuture<>();SchedulerUtil.runGlobal(plugin,()->{try{f.complete(giveNow(player,amount,eventId));}catch(Throwable t){f.completeExceptionally(t);}});return f;}
@@ -150,17 +152,17 @@ public final class EconomyAdapter {
                 .replace("{event_id}",sanitize(eventId));
         Double before=provider.equalsIgnoreCase("CMI")?tryCmiBalance(player):balanceOf(player);
         // Денег заведомо не хватает: команду не отправляем.
-        if(before!=null && before+0.000001D<amount) return Attempt.done(new Result(false,0,provider+"_INSUFFICIENT"));
+        if(before!=null && before+0.000001D<amount) return Attempt.byCommand(new Result(false,0,provider+"_INSUFFICIENT"));
         boolean dispatched=Bukkit.dispatchCommand(Bukkit.getConsoleSender(),cmd);
         if(!dispatched) return Attempt.unavailable();
         Double after=provider.equalsIgnoreCase("CMI")?tryCmiBalance(player):balanceOf(player);
         if(before!=null && after!=null){
             double actual=Math.max(0,before-after);
-            if(actual+0.000001D>=amount) return Attempt.done(new Result(true,(int)Math.round(actual),provider));
-            return Attempt.done(new Result(false,0,provider+"_UNVERIFIED"));
+            if(actual+0.000001D>=amount) return Attempt.byCommand(new Result(true,(int)Math.round(actual),provider));
+            return Attempt.byCommand(new Result(false,0,provider+"_UNVERIFIED"));
         }
         boolean allow=plugin.getConfig().getBoolean("economy.allow-unverified-withdraw-success",false);
-        return Attempt.done(allow?new Result(true,(int)Math.round(amount),provider+"_UNVERIFIED"):new Result(false,0,provider+"_UNVERIFIED"));
+        return Attempt.byCommand(allow?new Result(true,(int)Math.round(amount),provider+"_UNVERIFIED"):new Result(false,0,provider+"_UNVERIFIED"));
     }
 
     private Attempt dispatch(String template,Player player,double amount,String eventId,String provider){
@@ -175,14 +177,14 @@ public final class EconomyAdapter {
         Double after=provider.equalsIgnoreCase("CMI")?tryCmiBalance(player):balanceOf(player);
         if(before!=null&&after!=null){
             double actual=after-before;
-            if(actual+0.000001D>=amount) return Attempt.done(new Result(true,(int)Math.round(actual),provider));
+            if(actual+0.000001D>=amount) return Attempt.byCommand(new Result(true,(int)Math.round(actual),provider));
             // Команда отправлена, но баланс не вырос. Она могла сработать с задержкой, поэтому
             // по другому каналу не повторяем: это и была двойная выплата.
-            return Attempt.done(new Result(false,0,provider+"_UNVERIFIED"));
+            return Attempt.byCommand(new Result(false,0,provider+"_UNVERIFIED"));
         }
         boolean allow=provider.equalsIgnoreCase("CMI")
                 || plugin.getConfig().getBoolean("economy.allow-unverified-command-success",true);
-        return Attempt.done(allow?new Result(true,(int)Math.round(amount),provider+"_UNVERIFIED"):new Result(false,0,provider+"_UNVERIFIED"));
+        return Attempt.byCommand(allow?new Result(true,(int)Math.round(amount),provider+"_UNVERIFIED"):new Result(false,0,provider+"_UNVERIFIED"));
     }
 
     private Double tryCmiBalance(Player player){
@@ -242,7 +244,10 @@ public final class EconomyAdapter {
         catch(Throwable ignored){return provider.getClass().getSimpleName();}
     }
 
-    public record Result(boolean success,int actualAmount,String provider){}
+    /** @param viaCommand выплата прошла консольной командой, которая сама сообщает игроку о деньгах */
+    public record Result(boolean success,int actualAmount,String provider,boolean viaCommand){
+        public Result(boolean success,int actualAmount,String provider){this(success,actualAmount,provider,false);}
+    }
 
     public String providerName(){
         try{
