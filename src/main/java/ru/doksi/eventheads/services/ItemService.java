@@ -66,7 +66,7 @@ public final class ItemService {
         List<String> names=new ArrayList<>(); for(String id:eventIds){EventDefinition e=plugin.events().get(id);names.add(e==null?id:e.playerName);}
         List<String> lore=new ArrayList<>(); lore.add(ChatColorUtil.color("&8Привязанные события:")); for(String n:names) lore.add(ChatColorUtil.color("&7• &f"+n));
         lore.add(ChatColorUtil.color("&7ЛКМ/ПКМ по блоку — поставить точку.")); lore.add(ChatColorUtil.color("&7Одна шкурка может обслуживать несколько событий."));
-        lore.add(ChatColorUtil.color("&8Для каждого события точка сохраняется отдельно.")); lore.add(ChatColorUtil.color("&7Завершить: &f/eventheads point cancel")); lore.add(ChatColorUtil.color("&8Требуется: eventheads.points"));
+        lore.add(ChatColorUtil.color("&8Для каждого события точка сохраняется отдельно.")); lore.add(ChatColorUtil.color("&a■ &7Пока шкурка в руке, точки подсвечены зелёным.")); lore.add(ChatColorUtil.color("&7Завершить: &f/eventheads point cancel")); lore.add(ChatColorUtil.color("&8Требуется: eventheads.points"));
         m.setLore(lore); var pdc=m.getPersistentDataContainer(); pdc.set(wandKey,PersistentDataType.BYTE,(byte)1); pdc.set(wandEventsKey,PersistentDataType.STRING,String.join(",",eventIds)); i.setItemMeta(m); return i;
     }
     public List<String> wandEvents(ItemStack i){if(!isWand(i))return List.of();String raw=i.getItemMeta().getPersistentDataContainer().get(wandEventsKey,PersistentDataType.STRING);if(raw==null||raw.isBlank()||raw.equals("*"))return new ArrayList<>(plugin.events().keySet());return Arrays.stream(raw.split(",")).map(String::trim).filter(x->!x.isBlank()&&plugin.events().containsKey(x)).distinct().toList();}
@@ -77,7 +77,11 @@ public final class ItemService {
         ItemStack i=new ItemStack(Material.RABBIT_FOOT); ItemMeta m=i.getItemMeta();
         m.setDisplayName(ChatColorUtil.color("&cEventHeads • Чёрный список"));
         String target=eventId.equals("*")?"все события":plugin.events().get(eventId)==null?eventId:plugin.events().get(eventId).playerName;
-        m.setLore(java.util.List.of(ChatColorUtil.color("&7Привязка: &f"+target),ChatColorUtil.color("&7ЛКМ/ПКМ по блоку — удалить точку или заблокировать место."),ChatColorUtil.color("&7Shift+ЛКМ/ПКМ — снять запрет."),ChatColorUtil.color("&7ЛКМ/ПКМ по активному EventHead — удалить его и заблокировать место."),ChatColorUtil.color("&8Требуется: eventheads.points")));
+        List<String> lore=new ArrayList<>(java.util.List.of(ChatColorUtil.color("&7Привязка: &f"+target),ChatColorUtil.color("&7ЛКМ/ПКМ по блоку — удалить точку или заблокировать место."),ChatColorUtil.color("&7Shift+ЛКМ/ПКМ — снять запрет."),ChatColorUtil.color("&7ЛКМ/ПКМ по активному EventHead — удалить его и заблокировать место.")));
+        if(eventId.equals("*")) lore.add(ChatColorUtil.color("&5■ &7Пока лапка в руке, общие запреты подсвечены фиолетовым."));
+        else { lore.add(ChatColorUtil.color("&6■ &7Пока лапка в руке, точки подсвечены оранжевым.")); lore.add(ChatColorUtil.color("&c■ &7Запреты спавна подсвечены красным.")); }
+        lore.add(ChatColorUtil.color("&8Требуется: eventheads.points"));
+        m.setLore(lore);
         m.getPersistentDataContainer().set(removeToolKey,PersistentDataType.BYTE,(byte)1); m.getPersistentDataContainer().set(removeToolEventKey,PersistentDataType.STRING,eventId); i.setItemMeta(m); return i;
     }
 

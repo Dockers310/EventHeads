@@ -42,7 +42,7 @@ public final class AnimationService {
         final long ticks = Math.max(1L, Math.round(baseTicks / speed));
         final double risePerTick = plugin.getConfig().getDouble("animation.rise-blocks", 1.5D) / ticks;
         final double rotationPerTick = plugin.getConfig().getDouble("animation.rotate-degrees-per-tick", 10.0D) * speed;
-        final List<Particle> selectedParticles = parseParticles(eventDefinition);
+        final List<String> selectedParticles = parseParticles(eventDefinition);
         final String configuredSound = chooseSound(eventDefinition);
         final int configuredEventCount = inst.eventId == null ? -1
                 : plugin.events().getOrDefault(inst.eventId, new EventDefinition("_missing")).collectParticleCount;
@@ -176,9 +176,10 @@ public final class AnimationService {
                             int particleBudget=maxParticlesPerTick;
                             double elapsedSeconds=(System.nanoTime()-startedAtNanos)/1_000_000_000.0D;
                             for (int particleIndex=0; particleIndex<selectedParticles.size(); particleIndex++) {
-                                Particle selectedParticle=selectedParticles.get(particleIndex);
+                                String particleName=selectedParticles.get(particleIndex);
+                                Particle selectedParticle=ParticleCatalog.resolve(particleName);
+                                if(selectedParticle==null)continue;
                                 try {
-                                    String particleName=selectedParticle.name();
                                     ParticleSettings settings=eventDefinition==null?null:eventDefinition.particleSettings.get(particleName);
                                     if(settings==null){settings=new ParticleSettings();}
                                     long duration=settings.durationSeconds<0?Math.max(1,Math.round(baseTicks/20.0D)):settings.durationSeconds;
@@ -218,7 +219,7 @@ public final class AnimationService {
                                             }
                                         }
                                     } else {
-                                        Object data = particleData(selectedParticle, particleLocation, dustOptions(inst,settings), visual, settings);
+                                        Object data = particleData(particleName, selectedParticle, particleLocation, dustOptions(inst,settings), visual, settings);
                                         particleLocation.getWorld().spawnParticle(selectedParticle, particleLocation, kindCount, spread, spread, spread, extra, data);
                                     }
                                 } catch (IllegalArgumentException ignored) {
@@ -272,13 +273,14 @@ public final class AnimationService {
         }
     }
 
-    private List<Particle> parseParticles(EventDefinition eventDefinition) {
-        java.util.LinkedHashSet<Particle> out = new java.util.LinkedHashSet<>();
+    /** Catalog names (not Particle constants): block presets such as SHELF_MUSHROOM share Particle.BLOCK. */
+    private List<String> parseParticles(EventDefinition eventDefinition) {
+        java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
         List<String> names = eventDefinition == null ? java.util.List.of() : eventDefinition.collectParticles;
         if (names.isEmpty() && eventDefinition != null && eventDefinition.collectParticle != null && !eventDefinition.collectParticle.isBlank()) names = java.util.List.of(eventDefinition.collectParticle);
         if (names.isEmpty()) names = java.util.List.of(plugin.getConfig().getString("animation.particle", "END_ROD"));
-        for (String n : names) { String normalized=n==null?"":n.toUpperCase(java.util.Locale.ROOT); if(!ParticleCatalog.isSupported(normalized)) continue; try { out.add(Particle.valueOf(normalized)); } catch (Exception ignored) {} }
-        if (out.isEmpty()) out.add(Particle.END_ROD);
+        for (String n : names) { String normalized=n==null?"":n.trim().toUpperCase(java.util.Locale.ROOT); if(ParticleCatalog.isSupported(normalized)) out.add(normalized); }
+        if (out.isEmpty()) out.add("END_ROD");
         return new java.util.ArrayList<>(out);
     }
 
@@ -287,12 +289,14 @@ public final class AnimationService {
         if(player==null || event==null || player.getWorld()==null) return;
         Location location=player.getLocation().clone().add(0.0D,1.0D,0.0D);
         EventInstance preview=new EventInstance(UUID.randomUUID(),event.id,location,player.getLocation().getYaw(),System.currentTimeMillis(),System.currentTimeMillis()+1000L);
-        List<Particle> selected=parseParticles(event);
+        List<String> selected=parseParticles(event);
         int globalCount=Math.min(plugin.maxParticlesPerTick(),Math.max(0,event.collectParticleCount>=0?event.collectParticleCount:plugin.getConfig().getInt("animation.particle-count",4)));
         int kinds=Math.max(1,selected.size());
         for(int index=0;index<selected.size();index++){
-            Particle particle=selected.get(index);
-            ParticleSettings settings=event.particleSettings.getOrDefault(particle.name(),new ParticleSettings());
+            String particleName=selected.get(index);
+            Particle particle=ParticleCatalog.resolve(particleName);
+            if(particle==null)continue;
+            ParticleSettings settings=event.particleSettings.getOrDefault(particleName,new ParticleSettings());
             int base=globalCount/kinds, rem=globalCount%kinds;
             int count=Math.min(plugin.maxParticlesPerTick(),settings.count>=0?settings.count:(base+(index<rem?1:0)));
             if(count<=0)continue;
@@ -322,7 +326,7 @@ public final class AnimationService {
                         }
                     }
                 }else{
-                    Object data=particleData(particle,location,dustOptions(preview,settings),event.visual,settings);
+                    Object data=particleData(particleName,particle,location,dustOptions(preview,settings),event.visual,settings);
                     location.getWorld().spawnParticle(particle,location,count,spread,spread,spread,speed,data);
                 }
             }catch(Exception ex){plugin.getLogger().fine("Particle preview failed for "+particle+": "+ex.getMessage());}
@@ -330,8 +334,8 @@ public final class AnimationService {
         playConfiguredSound(player,event);
     }
 
-    public Object previewParticleDataForGui(Particle particle, Location location, ItemStack visual, ParticleSettings settings) {
-        return particleData(particle, location, dustOptions(new EventInstance(UUID.randomUUID(), null, location, 0F, 0L, 0L), settings), visual, settings);
+    public Object previewParticleDataForGui(String particleName, Particle particle, Location location, ItemStack visual, ParticleSettings settings) {
+        return particleData(particleName, particle, location, dustOptions(new EventInstance(UUID.randomUUID(), null, location, 0F, 0L, 0L), settings), visual, settings);
     }
 
     /** Preview only the configured sound. */
@@ -366,15 +370,17 @@ public final class AnimationService {
             return Particle.END_ROD;
         }
         try {
-            String normalized=name.trim().toUpperCase(java.util.Locale.ROOT); if(!ParticleCatalog.isSupported(normalized)) return Particle.END_ROD; return Particle.valueOf(normalized);
+            String normalized=name.trim().toUpperCase(java.util.Locale.ROOT); if(!ParticleCatalog.isSupported(normalized)) return Particle.END_ROD; return ParticleCatalog.resolve(normalized);
         } catch (IllegalArgumentException ignored) {
             plugin.getLogger().warning("Unknown animation particle: " + name + ". Using END_ROD.");
             return Particle.END_ROD;
         }
     }
 
-    /** Supplies the payload required by parameterized Java 26.2 particles. */
-    private Object particleData(Particle particle, Location location, List<org.bukkit.Particle.DustOptions> dustOptions, ItemStack visual, ParticleSettings settings) {
+    /** Supplies the payload required by parameterized particles. Block presets carry their own block. */
+    private Object particleData(String particleName, Particle particle, Location location, List<org.bukkit.Particle.DustOptions> dustOptions, ItemStack visual, ParticleSettings settings) {
+        org.bukkit.block.data.BlockData presetBlock = ParticleCatalog.blockPreset(particleName);
+        if (presetBlock != null) return presetBlock;
         Color color = dustOptions.isEmpty() ? Color.WHITE : dustOptions.get(0).getColor();
         return switch (particle) {
             case DUST_COLOR_TRANSITION -> {
