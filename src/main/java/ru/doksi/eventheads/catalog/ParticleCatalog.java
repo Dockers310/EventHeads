@@ -2,70 +2,81 @@ package ru.doksi.eventheads.catalog;
 
 import org.bukkit.Material;
 import org.bukkit.Particle;
+import org.bukkit.block.data.BlockData;
 
 import java.util.*;
 
 /**
- * Fixed Java Edition 26.2 particle catalog.
+ * Editor particle catalog: the Java Edition 26.2 set plus the 26.3 additions.
  *
- * The runtime enum may grow on newer Paper versions, but EventHeads deliberately
- * keeps its editor catalog pinned to the Java Edition 26.2 set. This prevents
- * 26.3-only particles (for example the poplar leaf particles) from appearing
- * accidentally after a server update.
+ * The 26.2 entries are always listed. The 26.3 entries are listed only when the
+ * running server knows them, so on a 26.2 core the catalog stays exactly as before.
+ * The plugin is compiled against the 26.2 API, therefore 26.3 names are resolved
+ * by string at runtime and never referenced as enum constants.
  */
 public final class ParticleCatalog {
     private ParticleCatalog() {}
 
-    /**
-     * Java 26.3-only particle names that must never appear in the 26.2 editor catalog.
-     * Paper 26.2 exposes the complete 26.2 enum through Particle.values().
-     */
-    private static final Set<String> JAVA_26_3_EXCLUDED = Set.of(
+    /** Entries that exist only since Java 26.3. */
+    private static final Set<String> JAVA_26_3 = Set.of(
         "RED_POPLAR_LEAVES",
         "ORANGE_POPLAR_LEAVES",
-        "YELLOW_POPLAR_LEAVES"
+        "YELLOW_POPLAR_LEAVES",
+        "SHELF_MUSHROOM",
+        "STRAW_BED"
     );
 
-    private static List<Particle> supportedParticleSnapshot() {
-        List<Particle> out = new ArrayList<>();
-        for (Particle particle : Particle.values()) {
-            if (!JAVA_26_3_EXCLUDED.contains(particle.name())) out.add(particle);
-        }
-        return Collections.unmodifiableList(out);
-    }
+    /**
+     * RU: Пресеты осколков блока. У вешенки и соломенной кровати из 26.3 нет своего типа частиц:
+     * в игре это частица BLOCK с текстурой блока. Ключ — имя в каталоге, значение — Material блока.
+     */
+    private static final Map<String, String> BLOCK_PRESETS = Map.of(
+        "SHELF_MUSHROOM", "SHELF_MUSHROOM",
+        "STRAW_BED", "STRAW_BED"
+    );
 
     private static final Map<String, Info> INFO = createInfo();
 
     /**
-     * Fixed editor catalog. The order follows createInfo(), so the Java 26.2
-     * catalog always contains exactly the authored 125 entries (minus explicit
-     * 26.3 exclusions) instead of shrinking when enum resolution is incomplete.
+     * Editor catalog in createInfo() order: every 26.2 entry, plus the 26.3 entries
+     * that the running server can actually spawn.
      */
     public static List<String> catalogNames() {
         List<String> out = new ArrayList<>();
         for (String name : INFO.keySet()) {
-            if (!JAVA_26_3_EXCLUDED.contains(name)) out.add(name);
+            if (!JAVA_26_3.contains(name) || resolve(name) != null) out.add(name);
         }
         return Collections.unmodifiableList(out);
     }
 
-    public static List<Particle> supportedParticles() {
-        return supportedParticleSnapshot();
+    /** True when the running server provides the Java 26.3 catalog entries. */
+    public static boolean hasJava263() {
+        for (String name : JAVA_26_3) if (resolve(name) != null) return true;
+        return false;
     }
 
-    /** Resolves a catalog name to the runtime Particle enum when available. */
+    /** Resolves a catalog name to the runtime Particle enum when available. Block presets resolve to BLOCK. */
     public static Particle resolve(String name) {
         if (name == null) return null;
         String normalized = name.trim().toUpperCase(Locale.ROOT);
-        if (JAVA_26_3_EXCLUDED.contains(normalized)) return null;
+        if (BLOCK_PRESETS.containsKey(normalized)) return blockPreset(normalized) == null ? null : Particle.BLOCK;
         try { return Particle.valueOf(normalized); }
+        catch (IllegalArgumentException ignored) { return null; }
+    }
+
+    /** Block data for a block preset (for example SHELF_MUSHROOM), or null for an ordinary particle. */
+    public static BlockData blockPreset(String name) {
+        String materialName = BLOCK_PRESETS.get(normalize(name));
+        if (materialName == null) return null;
+        Material material = Material.matchMaterial(materialName);
+        if (material == null || !material.isBlock()) return null;
+        try { return material.createBlockData(); }
         catch (IllegalArgumentException ignored) { return null; }
     }
 
     public static boolean isSupported(String name) {
         if (name == null) return false;
         String normalized = name.trim().toUpperCase(Locale.ROOT);
-        if (JAVA_26_3_EXCLUDED.contains(normalized)) return false;
         return INFO.containsKey(normalized) && resolve(normalized) != null;
     }
 
@@ -204,18 +215,21 @@ public final class ParticleCatalog {
         m.put("NOXIOUS_GAS", i("Ядовитый газ", "Частицы токсичного газа Java 26.2.", "POISONOUS_POTATO"));
         m.put("NOXIOUS_GAS_CLOUD", i("Облако ядовитого газа", "Плотное облако токсичного газа.", "POISONOUS_POTATO"));
         m.put("OMINOUS_SPAWNING", i("Зловещее появление", "Оменные частицы появления.", "OMINOUS_BOTTLE"));
+        m.put("ORANGE_POPLAR_LEAVES", i("Оранжевые листья тополя", "Падающие оранжевые листья тополя из Java 26.3.", "ORANGE_POPLAR_LEAVES"));
         m.put("PALE_OAK_LEAVES", i("Листья бледного дуба", "Падающие листья бледного дуба.", "PALE_OAK_LEAVES"));
         m.put("PAUSE_MOB_GROWTH", i("Пауза роста", "Визуальный эффект остановки роста моба.", "CLOCK"));
         m.put("POOF", i("Пуф", "Маленькое облачко при исчезновении.", "CLOUD"));
         m.put("PORTAL", i("Портал", "Фиолетовые частицы портала.", "ENDER_PEARL"));
         m.put("RAID_OMEN", i("Знак нашествия", "Оменные частицы рейда.", "OMINOUS_BOTTLE"));
         m.put("RAIN", i("Дождь", "Мелкие частицы дождя.", "WATER_BUCKET"));
+        m.put("RED_POPLAR_LEAVES", i("Красные листья тополя", "Падающие красные листья тополя из Java 26.3.", "RED_POPLAR_LEAVES"));
         m.put("RESET_MOB_GROWTH", i("Сброс роста", "Визуальный эффект сброса роста моба.", "CLOCK"));
         m.put("REVERSE_PORTAL", i("Обратный портал", "Поток частиц обратного портала.", "ENDER_EYE"));
         m.put("SCRAPE", i("Соскабливание", "Частицы при снятии воска.", "SHEARS"));
         m.put("SCULK_CHARGE", i("Заряд скалка", "Пульсирующий заряд скалка.", "SCULK"));
         m.put("SCULK_CHARGE_POP", i("Всплеск скалка", "Разлетающиеся частицы заряда.", "SCULK_CATALYST"));
         m.put("SCULK_SOUL", i("Душа скалка", "Душеподобные частицы скалка.", "SCULK_SHRIEKER"));
+        m.put("SHELF_MUSHROOM", i("Осколки вешенки", "Осколки блока вешенки из Java 26.3.", "SHELF_MUSHROOM"));
         m.put("SHRIEK", i("Крик скалка", "Волна крика скалкового сенсора.", "SCULK_SHRIEKER"));
         m.put("SMALL_FLAME", i("Малое пламя", "Мелкие огненные частицы.", "BLAZE_POWDER"));
         m.put("SMALL_GUST", i("Малый порыв", "Небольшое кольцо воздуха.", "FEATHER"));
@@ -229,6 +243,7 @@ public final class ParticleCatalog {
         m.put("SPLASH", i("Брызги", "Капли воды при всплеске.", "WATER_BUCKET"));
         m.put("SPORE_BLOSSOM_AIR", i("Споры цветка", "Зелёные споры спороцвета.", "SPORE_BLOSSOM"));
         m.put("SQUID_INK", i("Чернила", "Тёмные частицы чернил спрута.", "INK_SAC"));
+        m.put("STRAW_BED", i("Осколки соломенной кровати", "Осколки блока соломенной кровати из Java 26.3.", "STRAW_BED"));
         m.put("SULFUR_BUBBLES", i("Серные пузырьки", "Пузырьки серы из Java 26.2.", "GLASS_BOTTLE"));
         m.put("SULFUR_CUBE_GOO", i("Серная слизь", "Серный слизистый эффект Java 26.2.", "SLIME_BALL"));
         m.put("SWEEP_ATTACK", i("Взмах оружия", "Широкий след от атаки оружием.", "IRON_SWORD"));
@@ -247,6 +262,7 @@ public final class ParticleCatalog {
         m.put("WHITE_ASH", i("Белый пепел", "Светлый пепел частиц.", "LIGHT_GRAY_DYE"));
         m.put("WHITE_SMOKE", i("Белый дым", "Светлый дымок.", "WHITE_DYE"));
         m.put("WITCH", i("Магия ведьмы", "Фиолетовые магические искры.", "CAULDRON"));
+        m.put("YELLOW_POPLAR_LEAVES", i("Жёлтые листья тополя", "Падающие жёлтые листья тополя из Java 26.3.", "YELLOW_POPLAR_LEAVES"));
         return Collections.unmodifiableMap(m);
     }
 }

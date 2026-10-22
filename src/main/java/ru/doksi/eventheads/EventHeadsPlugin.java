@@ -30,6 +30,7 @@ import ru.doksi.eventheads.roles.LuckPermsHook;
 import ru.doksi.eventheads.services.AnimationService;
 import ru.doksi.eventheads.services.EconomyAdapter;
 import ru.doksi.eventheads.services.ItemService;
+import ru.doksi.eventheads.services.PointPreviewService;
 import ru.doksi.eventheads.util.SchedulerUtil;
 import org.bukkit.Bukkit;import org.bukkit.entity.Player;import io.papermc.paper.ServerBuildInfo;import net.kyori.adventure.key.Key;import org.bukkit.event.EventHandler;import org.bukkit.event.Listener;import org.bukkit.event.world.ChunkLoadEvent;import org.bukkit.event.world.EntitiesLoadEvent;import org.bukkit.event.world.WorldLoadEvent;import org.bukkit.plugin.java.JavaPlugin;import java.time.Instant;import java.util.*;
 
@@ -108,6 +109,8 @@ public final class EventHeadsPlugin extends JavaPlugin {
         SchedulerUtil.runGlobalRepeating(this,securityScanner::scan,containerScanSeconds*20L,containerScanSeconds*20L);
         long autosaveTicks=Math.max(20L,getConfig().getLong("storage.autosave-seconds",30)*20L);
         SchedulerUtil.runGlobalRepeating(this,()->{data.autosave();if(antiEspReport!=null)antiEspReport.flush();},autosaveTicks,autosaveTicks);
+        // Подсветка точек частицами, пока сотрудник держит шкурку или лапку (points.preview).
+        new PointPreviewService(this).start();
 printStartupBanner(); getLogger().info("EventHeads "+getDescription().getVersion()+" enabled. Events: "+events.size());}
     @Override public void onDisable(){
         // RU: Сохраняем active.yml и удаляем все визуальные сущности/анимации.

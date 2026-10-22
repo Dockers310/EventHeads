@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "ru.doksi"
-version = "3.5.6"
+version = "3.5.7"
 
 repositories {
     mavenCentral()

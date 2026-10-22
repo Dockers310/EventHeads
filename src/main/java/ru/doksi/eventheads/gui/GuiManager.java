@@ -478,7 +478,7 @@ public final class GuiManager {
         put(inv,4,item(dustOn?Material.LIME_DYE:Material.GRAY_DYE,(dustOn?"&a✔ ":"&7○ ")+"Цветная пыль (DUST)","&7"+(dustOn?"Включена":"Выключена")+" в списке типов.","&7Быстрое включение — без поиска в каталоге ниже.","&aЛКМ — переключить"),"particleToggle:DUST");
         put(inv,5,item(transitionOn?Material.LIME_DYE:Material.GRAY_DYE,(transitionOn?"&a✔ ":"&7○ ")+"Переход цвета","&7"+(transitionOn?"Включён":"Выключен")+" в списке типов.","&7DUST_COLOR_TRANSITION — быстрое включение.","&aЛКМ — переключить"),"particleToggle:DUST_COLOR_TRANSITION");
         put(inv,6,item(Material.NAME_TAG,"&eВыбранные частицы","&f"+e.collectParticles.size()+" "+particleCountWord(e.collectParticles.size())+" включено","&7Показывает только включённые типы,","&7чтобы не искать их в общем каталоге.","&aЛКМ — открыть список"),"particlesSelected");
-        put(inv,7,item(Material.FIREWORK_STAR,"&dКаталог частиц","&7Всего в каталоге: &f"+all.size(),"&7Java Edition 26.2.","&aЛКМ — следующая страница","&eПКМ — предыдущая страница"),"particles");
+        put(inv,7,item(Material.FIREWORK_STAR,"&dКаталог частиц","&7Всего в каталоге: &f"+all.size(),ParticleCatalog.hasJava263()?"&7Java Edition 26.2 / 26.3.":"&7Java Edition 26.2.","&aЛКМ — следующая страница","&eПКМ — предыдущая страница"),"particles");
 
         List<String> catalogNames = ParticleCatalog.catalogNames();
         int start=(page-1)*perPage;
@@ -813,7 +813,8 @@ public final class GuiManager {
         ParticleSettings ps=e.particleSettings.getOrDefault(particle,new ParticleSettings());
         Location l=p.getLocation().clone().add(0,1,0);
         try{
-            Particle part=Particle.valueOf(particle.toUpperCase(Locale.ROOT));
+            Particle part=ParticleCatalog.resolve(particle);
+            if(part==null) throw new IllegalArgumentException("unknown particle "+particle);
             int count=ps.count<0?8:Math.max(1,ps.count);
             double spread=Math.max(0,ps.radius),speed=Math.max(0,ps.speed);
             if(part==Particle.NOTE){
@@ -835,7 +836,7 @@ public final class GuiManager {
                     l.getWorld().spawnParticle(part,l,amount,spread,spread,spread,speed,new Particle.DustOptions(org.bukkit.Color.fromRGB(rgb),Math.max(.01f,ps.size)));
                 }
             }else{
-                Object data=plugin.animation().previewParticleDataForGui(part,l,e.visual,ps);
+                Object data=plugin.animation().previewParticleDataForGui(particle.toUpperCase(Locale.ROOT),part,l,e.visual,ps);
                 if(data==null) l.getWorld().spawnParticle(part,l,count,spread,spread,spread,speed);
                 else l.getWorld().spawnParticle(part,l,count,spread,spread,spread,speed,data);
             }
@@ -879,7 +880,7 @@ public final class GuiManager {
     private boolean supportsCount(String n){ return !n.equals("VIBRATION") && !n.equals("SONIC_BOOM"); }
     private boolean supportsSpeed(String n){
         return switch(n){
-            case "VIBRATION","SONIC_BOOM","SHRIEK","SCULK_CHARGE","ITEM","BLOCK","BLOCK_CRUMBLE","BLOCK_MARKER","DUST_PILLAR","FALLING_DUST" -> false;
+            case "VIBRATION","SONIC_BOOM","SHRIEK","SCULK_CHARGE","ITEM","BLOCK","BLOCK_CRUMBLE","BLOCK_MARKER","DUST_PILLAR","FALLING_DUST","SHELF_MUSHROOM","STRAW_BED" -> false;
             default -> true;
         };
     }
